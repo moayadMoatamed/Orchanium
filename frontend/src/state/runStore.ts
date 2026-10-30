@@ -33,11 +33,9 @@ interface RunState {
   selectedStep: string | null;
   selectedNode: string | null;
   selectedMolecule: string | null;
-  showRuledOut: boolean;
 
   setTab: (t: Tab) => void;
   select: (p: { step?: string | null; node?: string | null; molecule?: string | null }) => void;
-  toggleRuledOut: () => void;
   reset: (runId: string, target: string) => void;
   apply: (kind: string, data: any, ts?: number) => void;
   connect: (runId: string, replaySpeed?: number) => () => void;
@@ -70,7 +68,6 @@ export const useRun = create<RunState>((set, get) => ({
   selectedStep: null,
   selectedNode: null,
   selectedMolecule: null,
-  showRuledOut: false,
 
   setTab: (tab) => set({ tab }),
   select: ({ step, node, molecule }) =>
@@ -79,7 +76,6 @@ export const useRun = create<RunState>((set, get) => ({
       selectedNode: node !== undefined ? node : s.selectedNode,
       selectedMolecule: molecule !== undefined ? molecule : s.selectedMolecule,
     })),
-  toggleRuledOut: () => set((s) => ({ showRuledOut: !s.showRuledOut })),
 
   reset: (runId, target) =>
     set({
@@ -229,8 +225,33 @@ export function routeSteps(s: RunState) {
       classes: rx?.classes ?? [],
       objections: sv?.objections ?? [],
       critic: rx?.critic ?? null,
+      reactants: rx?.reactants ?? [],
+      product: rx?.products[0] ?? null,
     };
   });
+}
+
+/** The route as a story: what to buy, what gets made on the way, and the
+ *  target, each molecule appearing once. */
+export function routeStory(s: RunState) {
+  const steps = routeSteps(s);
+  const made = new Set(steps.map((x) => x.product).filter(Boolean) as string[]);
+  const buy = [...new Set(steps.flatMap((x) => x.reactants).filter((m) => !made.has(m)))];
+  const target = s.targetInfo?.inchikey ?? steps[steps.length - 1]?.product ?? null;
+  const intermediates = steps.map((x) => x.product).filter((m): m is string => !!m && m !== target);
+  return { steps, buy, intermediates, target };
+}
+
+/** Why a run stopped. Older runs did not record a reason, so fall back to the
+ *  last error an agent logged. */
+export function failureOf(s: RunState): { message: string; retryable: boolean } | null {
+  if (s.status !== "failed") return null;
+  if (s.summary?.failure) return s.summary.failure;
+  const errors = s.agentOrder
+    .flatMap((id) => s.agents[id]?.logs ?? [])
+    .filter((l) => l.level === "error" && !l.text.startsWith("run failed"));
+  const last = errors[errors.length - 1]?.text.replace(/^\w+Error:\s*/, "");
+  return { message: last ?? "The run stopped before it reached an answer.", retryable: false };
 }
 
 export function describeReaction(s: RunState, rx: Reaction) {

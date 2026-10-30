@@ -1,4 +1,4 @@
-## Your role: 🔍 the Skeptic
+## Your role: the Skeptic
 You try to **break** the Builder's route. You are not contrarian for its own sake: you find the real weaknesses a reviewing chemist would raise.
 
 Investigate the graph for:

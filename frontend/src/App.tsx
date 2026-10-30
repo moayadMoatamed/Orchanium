@@ -1,19 +1,19 @@
+import { FileSearch, History, MessagesSquare, Network, Play, ShieldCheck, type LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { ActivityDock } from "./components/ActivityDock";
 import { DebateView } from "./components/DebateView";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { GraphView } from "./components/GraphView";
 import { ResultView } from "./components/ResultView";
-import { RouteRail } from "./components/RouteRail";
 import { TopBar } from "./components/TopBar";
 import { VerificationView } from "./components/VerificationView";
 import { useRun, type Tab } from "./state/runStore";
 
-const TABS: { id: Tab; label: string }[] = [
-  { id: "result", label: "Result" },
-  { id: "graph", label: "Graph" },
-  { id: "verification", label: "Verification" },
-  { id: "debate", label: "Debate" },
+const TABS: { id: Tab; label: string; icon: LucideIcon }[] = [
+  { id: "result", label: "Result", icon: FileSearch },
+  { id: "graph", label: "Route map", icon: Network },
+  { id: "verification", label: "Verification", icon: ShieldCheck },
+  { id: "debate", label: "Debate", icon: MessagesSquare },
 ];
 
 export default function App() {
@@ -48,61 +48,56 @@ export default function App() {
 
   useEffect(() => () => disconnect.current?.(), []);
 
-  const withRail = s.tab !== "result";
-
   return (
     <div className="flex h-full flex-col">
       <TopBar onRun={start} />
 
       <div className="flex items-center gap-1 border-b border-hairline px-5 py-2.5">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            onClick={() => s.setTab(t.id)}
-            className={`tab ${s.tab === t.id ? "tab-active" : ""}`}
-          >
-            {t.label}
+        {TABS.map(({ id, label, icon: Icon }) => (
+          <button key={id} onClick={() => s.setTab(id)} className={`tab inline-flex items-center gap-1.5 ${s.tab === id ? "tab-active" : ""}`}>
+            <Icon size={15} strokeWidth={1.8} aria-hidden />
+            {label}
           </button>
         ))}
 
-        <div className="ml-auto flex items-center gap-2 text-[12.5px] text-muted">
-          {s.blind && <span title="Evidence mentioning the target was discarded">blind mode</span>}
+        <div className="ml-auto flex items-center gap-3 text-[12.5px] text-muted">
+          {s.blind && <span title="Evidence mentioning the target was hidden">blind mode</span>}
           {recent.length > 0 && (
-            <select
-              className="rounded-chip border border-hairline bg-surface px-2 py-1 text-[12.5px] outline-none"
-              value={s.runId ?? ""}
-              onChange={(e) => e.target.value && open(e.target.value)}
-            >
-              <option value="">Past runs…</option>
-              {recent.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.target.length > 36 ? `${r.target.slice(0, 35)}…` : r.target} · {r.status}
-                </option>
-              ))}
-            </select>
+            <label className="flex items-center gap-1.5">
+              <History size={14} strokeWidth={1.8} aria-hidden />
+              <select
+                className="rounded-chip border border-hairline bg-surface px-2 py-1 text-[12.5px] outline-none"
+                value={s.runId ?? ""}
+                onChange={(e) => e.target.value && open(e.target.value)}
+              >
+                <option value="">Past runs…</option>
+                {recent.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.target.length > 36 ? `${r.target.slice(0, 35)}…` : r.target} · {r.status === "failed" ? "stopped" : r.status}
+                  </option>
+                ))}
+              </select>
+            </label>
           )}
           {s.runId && s.status !== "running" && (
-            <button className="hover:text-ink" onClick={() => open(s.runId!, 6)} title="Replay this run at 6× speed">
-              replay
+            <button className="inline-flex items-center gap-1 hover:text-ink" onClick={() => open(s.runId!, 6)} title="Replay this run at 6× speed">
+              <Play size={13} strokeWidth={2} aria-hidden /> Replay
             </button>
           )}
         </div>
       </div>
 
-      <main className="flex min-h-0 flex-1">
-        {withRail && <RouteRail />}
-        <div className="min-w-0 flex-1 overflow-hidden">
-          <ErrorBoundary name={s.tab} key={s.tab}>
-            {s.tab === "result" && (
-              <div className="h-full overflow-y-auto pb-28">
-                <ResultView />
-              </div>
-            )}
-            {s.tab === "graph" && <GraphView />}
-            {s.tab === "verification" && <VerificationView />}
-            {s.tab === "debate" && <DebateView />}
-          </ErrorBoundary>
-        </div>
+      <main className="min-h-0 flex-1 overflow-hidden">
+        <ErrorBoundary name={s.tab} key={s.tab}>
+          {s.tab === "result" && (
+            <div className="h-full overflow-y-auto pb-28">
+              <ResultView onRetry={(t) => start(t, { blind: s.blind })} />
+            </div>
+          )}
+          {s.tab === "graph" && <GraphView />}
+          {s.tab === "verification" && <VerificationView />}
+          {s.tab === "debate" && <DebateView />}
+        </ErrorBoundary>
       </main>
 
       <ErrorBoundary name="activity">

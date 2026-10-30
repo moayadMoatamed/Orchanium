@@ -1,3 +1,4 @@
+import { Search } from "lucide-react";
 import { useEffect, useState } from "react";
 import { elapsed, useRun } from "../state/runStore";
 import { Mono } from "./primitives";
@@ -74,7 +75,7 @@ export function TopBar({ onRun }: { onRun: (target: string, opts: { blind: boole
                        focus:border-accent/50 focus:ring-1 focus:ring-accent/20"
           />
           <button type="submit" className="btn-primary shrink-0" disabled={busy || !value.trim()}>
-            Find route
+            <Search size={15} strokeWidth={2} aria-hidden /> Find route
           </button>
         </form>
 

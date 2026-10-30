@@ -4,8 +4,8 @@ const cache = new Map<string, string>();
 
 /** 2D depiction rendered by RDKit on the backend (never by the model). */
 export function Structure({
-  smiles, width = 260, height = 190, className = "",
-}: { smiles: string; width?: number; height?: number; className?: string }) {
+  smiles, width = 260, height = 190, className = "", framed = true,
+}: { smiles: string; width?: number; height?: number; className?: string; framed?: boolean }) {
   const key = `${smiles}|${width}x${height}`;
   const [svg, setSvg] = useState<string | null>(cache.get(key) ?? null);
 
@@ -28,19 +28,17 @@ export function Structure({
     };
   }, [smiles, key, width, height]);
 
+  const frame = framed ? "rounded-chip border border-hairline bg-surface" : "";
   if (!svg) {
     return (
-      <div
-        className={`grid place-items-center rounded-chip border border-hairline bg-surface ${className}`}
-        style={{ width, height }}
-      >
+      <div className={`grid place-items-center ${frame} ${className}`} style={{ width, height }}>
         <span className="text-[12px] text-muted/60">structure</span>
       </div>
     );
   }
   return (
     <div
-      className={`grid place-items-center rounded-chip border border-hairline bg-surface ${className}`}
+      className={`grid place-items-center ${frame} ${className}`}
       style={{ width, height }}
       dangerouslySetInnerHTML={{ __html: svg }}
     />

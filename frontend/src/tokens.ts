@@ -1,6 +1,6 @@
 /** Single source of truth for the visual language (see design spec).
  *  Monochrome first. The accent means "live / target". Green and red appear
- *  only on verdicts. Graph nodes are told apart by SHAPE, not colour. */
+ *  only on verdicts. Every status is an icon plus a word, never colour alone. */
 
 export const C = {
   ground: "#F5F3EE",
@@ -14,22 +14,37 @@ export const C = {
   warning: "#A86A00",
 } as const;
 
-/** Verdict for the whole route. */
+/** Verdict for the whole route, with what it means for the reader. */
 export const VERDICT = {
-  Feasible: { tone: "good", note: "Every step has published precedent." },
-  Plausible: { tone: "good", note: "Supported, with weak points to test." },
-  Uncertain: { tone: "warn", note: "At least one step has no precedent." },
-  Unlikely: { tone: "bad", note: "Evidence argues against this route." },
+  Feasible: { tone: "good", note: "Every step has been done before in published work." },
+  Plausible: { tone: "good", note: "Backed by published work, with a weak point worth testing first." },
+  Uncertain: { tone: "warn", note: "At least one step has never been shown to work." },
+  Unlikely: { tone: "bad", note: "Published evidence argues against this route." },
 } as const;
 export type VerdictLabel = keyof typeof VERDICT;
 
 /** Evidence grade for one step (computed from precedent similarity). */
 export const GRADE = {
-  direct: { label: "Verified", tone: "good", blurb: "published for this exact reaction" },
-  analog: { label: "Supported", tone: "good", blurb: "published on closely related molecules" },
-  weak: { label: "Thin", tone: "warn", blurb: "only loosely related precedent" },
-  none: { label: "No precedent", tone: "warn", blurb: "nothing published was found" },
-  blocked: { label: "Ruled out", tone: "bad", blurb: "failed a chemistry check" },
+  direct: {
+    label: "Verified", tone: "good", blurb: "published for this exact reaction",
+    plain: "This exact reaction has been published.",
+  },
+  analog: {
+    label: "Supported", tone: "good", blurb: "published on closely related molecules",
+    plain: "The same reaction has been published on very similar molecules.",
+  },
+  weak: {
+    label: "Thin", tone: "warn", blurb: "only loosely related precedent",
+    plain: "Only loosely related reactions have been published.",
+  },
+  none: {
+    label: "No precedent", tone: "warn", blurb: "nothing published was found",
+    plain: "Nothing published backs this step up.",
+  },
+  blocked: {
+    label: "Ruled out", tone: "bad", blurb: "failed a chemistry check",
+    plain: "It fails a chemistry check, so it was ruled out.",
+  },
 } as const;
 export type Grade = keyof typeof GRADE;
 
@@ -51,32 +66,43 @@ export const STATUS_TONE: Record<string, keyof typeof TONE> = {
   running: "live",
 };
 
-/** Shapes for graph nodes — the meaning never depends on colour alone. */
-export type NodeShape = "target" | "literature" | "proposed" | "purchasable" | "reaction" | "rejected";
-export const SHAPE_LEGEND: { shape: NodeShape; label: string }[] = [
-  { shape: "target", label: "Target" },
-  { shape: "literature", label: "From literature" },
-  { shape: "proposed", label: "Proposed" },
-  { shape: "purchasable", label: "Buyable" },
-  { shape: "reaction", label: "Reaction" },
-  { shape: "rejected", label: "Ruled out" },
-];
-
-/** Chain node types, in the order a reader should follow them. */
-export const CHAIN_TYPES: Record<string, { label: string; icon: string; order: number }> = {
-  hypothesis: { label: "Proposed step", icon: "◇", order: 0 },
-  query: { label: "Search", icon: "⌕", order: 1 },
-  source: { label: "Source", icon: "▤", order: 2 },
-  extraction: { label: "Reported reaction", icon: "❝", order: 3 },
-  citation: { label: "Citation check", icon: "⚓", order: 4 },
-  resolution: { label: "Structure", icon: "⬡", order: 5 },
-  vision: { label: "Figure read", icon: "👁", order: 6 },
-  precedent: { label: "Precedent match", icon: "≈", order: 7 },
-  check: { label: "Chemistry check", icon: "✓", order: 8 },
-  agreement: { label: "Cross-source", icon: "⇉", order: 9 },
-  debate: { label: "Debate", icon: "⚖", order: 10 },
-  verdict: { label: "Verdict", icon: "★", order: 11 },
+/** What each reaction class does, in words a non-chemist can follow.
+ *  Unknown classes fall back to their own name. */
+export const REACTION_PLAIN: Record<string, string> = {
+  "Acyl chloride formation": "Activates an acid so it reacts readily",
+  "Alcohol carbonylation (Pd/CO)": "Turns an alcohol into an acid using carbon monoxide",
+  "Amide formation (N-acylation)": "Joins an acid and an amine with an amide bond",
+  "Aromatic nitration": "Adds a nitro group to a ring",
+  "Carbonyl reduction": "Reduces a ketone or aldehyde to an alcohol",
+  "Chlorosulfonation": "Adds a sulfonyl chloride handle to a ring",
+  "Ester formation (O-acylation)": "Joins an acid and an alcohol with an ester bond",
+  "Ether formation (O-alkylation)": "Joins two pieces through an oxygen atom",
+  "Friedel-Crafts acylation": "Attaches a carbonyl group to a ring",
+  "Kolbe-Schmitt carboxylation": "Adds an acid group to a phenol ring using CO₂",
+  "N-alkylation": "Attaches a carbon chain to a nitrogen",
+  "Nitrile hydrolysis": "Converts a nitrile into an acid or amide",
+  "Nitro reduction": "Turns a nitro group into an amine",
+  "Reductive amination": "Joins an amine and a carbonyl into a new C–N bond",
+  "Sulfonamide formation": "Joins a sulfonyl chloride and an amine",
+  "Suzuki coupling": "Joins two rings with a palladium catalyst",
+  "Ester hydrolysis": "Splits an ester back into an acid and an alcohol",
+  "Oxime formation": "Converts a carbonyl into an oxime",
+  "Oxime dehydration to nitrile": "Converts an oxime into a nitrile",
+  "Darzens glycidic ester condensation": "Builds an epoxide next to an ester",
 };
+
+export function reactionPlain(cls: string | undefined): string {
+  if (!cls) return "A proposed chemical step";
+  return REACTION_PLAIN[cls] ?? cls;
+}
+
+/** How confident the verdict is, in words. */
+export function confidenceWords(c: number): string {
+  if (c >= 0.85) return "high confidence";
+  if (c >= 0.65) return "good confidence";
+  if (c >= 0.45) return "moderate confidence";
+  return "low confidence";
+}
 
 export const AGENT_LABEL: Record<string, string> = {
   planner: "Planner",
