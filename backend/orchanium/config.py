@@ -26,7 +26,9 @@ class Settings(BaseSettings):
     # per-run guardrails
     max_llm_calls: int = 80
     max_searches: int = 40
-    max_tokens: int = 1_500_000
+    max_tokens: int = 4_000_000
+    max_usd: float = 2.50                # hard per-run spend cap
+    searches_per_research: int = 6       # web searches one research call may run
     max_sam_images: int = 20
     max_researchers: int = 5
     max_followup_depth: int = 2

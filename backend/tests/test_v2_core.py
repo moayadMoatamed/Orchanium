@@ -109,3 +109,21 @@ def test_invalid_route_falls_back_and_no_evidence_is_uncertain():
     v = verdict.decide(ctx, g, DebateResult(route=["hyp:nonexistent"], builder_turns=[], skeptic_turns=[],
                                             sustained=[], struck_citations=[]))
     assert v.route_source == "fallback" and v.label == "Uncertain"
+
+
+def test_unreviewed_route_is_capped_at_plausible():
+    ctx, g = _decomposed(PARACETAMOL)
+    _observe(g, ["CC(=O)OC(C)=O", "COc1ccc(N)cc1"], "COc1ccc(NC(C)=O)cc1")
+    g.link_precedents()
+    v = verdict.decide(ctx, g, None)
+    assert v.label == "Plausible" and any("not reviewed" in r for r in v.reasons)
+
+
+def test_budget_reserve_blocks_early_phase_overspend():
+    from orchanium.meta.client import Budget, BudgetExceeded
+    b = Budget()
+    b.cost.usd = 1.5
+    b.check("llm")                       # 1.5 of 2.5 is fine with no reserve
+    b.reserve = 0.5
+    with pytest.raises(BudgetExceeded):
+        b.check("llm")                   # research may only use half

@@ -138,15 +138,19 @@ class Orchestrator:
                 h["message"] = f"{len(g.hypotheses())} candidate steps"
             live = [x.id for x in g.hypotheses() if x.critic.verdict != "block"]
 
+            # each phase must leave a share of the budget for the phases after it
+            self.budget.reserve = 0.5
             await self._uspto_all(live)
             await asyncio.gather(*(self._web_research(hid) for hid in self._web_targets()))
 
+            self.budget.reserve = 0.1
             if self.debate_rounds > 0:
                 async with ctx.agent("debate", "reasoner", "Debate") as h:
                     dbt = await debate.run(ctx, g, self._debate_research, self._debate_propose,
                                            rounds=self.debate_rounds, skeptic_model=self.skeptic_model)
                     h["message"] = f"{len(dbt.sustained)} objection(s) stand"
 
+            self.budget.reserve = 0.0
             async with ctx.agent("verdict", "critic", "Verdict (rule-based)") as h:
                 v = verdict.decide(ctx, g, dbt)
                 h["message"] = f"{v.label} ({v.confidence:.0%})"

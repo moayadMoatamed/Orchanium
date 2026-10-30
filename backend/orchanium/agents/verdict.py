@@ -4,7 +4,8 @@ the objections the Skeptic sustained. No LLM decides the label.
   Unlikely   any blocked step, or a fatal objection backed by a failure clue
   Uncertain  any step with no precedent, a route gap, or many weak points
   Feasible   every step has direct/analog precedent and no major objection stands
-  Plausible  otherwise (at most one weak step / one major objection)"""
+  Plausible  otherwise (at most one weak step / one major objection)
+A route that was not adversarially reviewed (no debate) is capped at Plausible."""
 from __future__ import annotations
 
 from typing import Literal
@@ -108,6 +109,9 @@ def decide(ctx: RunContext, g: KnowledgeGraph, debate: DebateResult | None) -> V
     else:
         label = "Plausible"
         reasons.append(f"{weak} weakly-supported step(s), {major} standing major objection(s)")
+    if label == "Feasible" and debate is None:
+        label = "Plausible"
+        reasons.append("capped at Plausible: the route was not reviewed by the Skeptic")
 
     scores = [s.precedent_score or 0.1 for s in steps] or [0.0]
     conf = sum(scores) / len(scores) - 0.08 * major - 0.2 * len(fatal_evidenced) - 0.1 * len(gaps)

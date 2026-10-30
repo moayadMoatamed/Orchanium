@@ -135,37 +135,57 @@ def check_conserved_core(reactants: list[Chem.Mol], product: Chem.Mol) -> tuple[
                        details=details), best
 
 
-# reagent-class SMARTS used for conflict rules
-_REAGENT_CLASSES = {
-    "strong_nucleophile_base": "[Mg,Li]",
-    "hydride": "[AlH4-,BH4-,Al-,B-]",
-    "acylating": "[CX3](=O)[Cl,Br,$(OC=O)]",
+# One table of mutually incompatible groups: (nucleophile/protic side, electrophile/reactive side, why).
+# Applied two ways: inside one molecule (it would react with itself) and across a step's
+# inputs (an electrophile facing several different nucleophiles = chemoselectivity risk).
+_GROUP_SMARTS = {
+    "free amine": "[NX3;H2,H1;!$(N-[C,S]=[O,S,N]);!$(N-a=*)]",
+    "alcohol": "[OX2H][CX4]",
+    "phenol": "[OX2H]c",
+    "thiol": "[SX2H]",
+    "carboxylic acid": "[CX3](=O)[OX2H1]",
+    "acyl halide": "[CX3](=O)[Cl,Br,I]",
+    "sulfonyl halide": "[SX4](=O)(=O)[Cl,Br,F]",
+    "anhydride": "[CX3](=O)O[CX3](=O)",
+    "isocyanate": "N=C=O",
+    "organometallic": "[Mg,Li,Zn]",
+    "hydride reagent": "[AlH4-,BH4-]",
+    "alkyl halide": "[CH2X4,CH3X4][Cl,Br,I]",
 }
-_RC = {k: Chem.MolFromSmarts(v) for k, v in _REAGENT_CLASSES.items()}
+_GROUPS = {k: Chem.MolFromSmarts(v) for k, v in _GROUP_SMARTS.items()}
+_NUCLEOPHILES = ("free amine", "alcohol", "phenol", "thiol")
+_ELECTROPHILES = ("acyl halide", "sulfonyl halide", "anhydride", "isocyanate", "alkyl halide")
+INCOMPATIBLE: list[tuple[str, str, str]] = (
+    [(n, e, f"{n} reacts with {e}") for n in _NUCLEOPHILES for e in _ELECTROPHILES]
+    + [(p, "organometallic", f"organometallic is quenched by {p}")
+       for p in ("free amine", "alcohol", "phenol", "thiol", "carboxylic acid")]
+    + [("carboxylic acid", "hydride reagent", "hydride is consumed by the carboxylic acid")]
+)
+
+
+def _groups(m: Chem.Mol) -> set[str]:
+    return {k for k, patt in _GROUPS.items() if m.HasSubstructMatch(patt)}
 
 
 def check_fg_conflicts(reactants: list[Chem.Mol], reagents: list[Chem.Mol]) -> CheckResult:
     warnings: list[str] = []
-    inputs = reactants + reagents
-    fgs = Counter()
-    for m in reactants:
-        fgs.update(rd.functional_groups(m))
-    has = lambda key: any(m.HasSubstructMatch(_RC[key]) for m in inputs)  # noqa: E731
-    protic = [g for g in ("carboxylic_acid", "alcohol", "phenol", "primary_amine", "secondary_amine") if fgs[g]]
-    if has("strong_nucleophile_base") and protic:
-        warnings.append(f"organometallic reagent with protic groups ({', '.join(protic)}): quench risk")
-    reducible = [g for g in ("ester", "ketone", "aldehyde", "nitro", "nitrile", "amide") if fgs[g]]
-    if has("hydride") and len(reducible) > 1:
-        warnings.append(f"hydride with several reducible groups ({', '.join(reducible)}): chemoselectivity")
-    nucleophiles = [g for g in ("primary_amine", "secondary_amine", "alcohol", "phenol") if fgs[g]]
-    if has("acylating") and len(nucleophiles) > 1:
-        warnings.append(f"acylating agent with competing nucleophiles ({', '.join(nucleophiles)}): "
-                        "chemoselectivity must be controlled")
+    per_mol = [_groups(m) for m in reactants]
+    for gs in per_mol:                                        # self-reactive species
+        for a, b, why in INCOMPATIBLE:
+            if a in gs and b in gs:
+                warnings.append(f"a precursor carries both {a} and {b} ({why}): unstable / self-reactive unless protected")
+    all_groups = set().union(*per_mol, *(_groups(m) for m in reagents)) if per_mol else set()
+    for e in _ELECTROPHILES + ("organometallic", "hydride reagent"):
+        if e in all_groups:
+            partners = sorted({a for a, b, _ in INCOMPATIBLE if b == e and a in all_groups})
+            if len(partners) > 1:
+                warnings.append(f"{e} faces several reactive partners ({', '.join(partners)}): chemoselectivity must be controlled")
+    warnings = list(dict.fromkeys(warnings))
+    details = {"groups_per_reactant": [sorted(g) for g in per_mol]}
     if warnings:
-        return CheckResult(name="fg_conflicts", status="warn", reason="; ".join(warnings),
-                           details={"functional_groups": dict(fgs)})
+        return CheckResult(name="fg_conflicts", status="warn", reason="; ".join(warnings), details=details)
     return CheckResult(name="fg_conflicts", status="pass", reason="no functional-group conflicts detected",
-                       details={"functional_groups": dict(fgs)})
+                       details=details)
 
 
 def check_reaction_class(reactants: list[Chem.Mol], reagents: list[Chem.Mol], product: Chem.Mol) -> CheckResult:

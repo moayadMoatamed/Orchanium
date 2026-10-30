@@ -183,3 +183,24 @@ async def lookup_inchikey(key: str) -> dict | None:
     if r.status_code in (200, 404):
         store.cache_set(CACHE_NS + ".ik", key, val)
     return val or None
+
+
+async def vendor_count(cid: int) -> int:
+    """Number of chemical vendors PubChem lists for a compound (cached)."""
+    store = get_store()
+    if (hit := store.cache_get(CACHE_NS + ".vendors", str(cid))) is not None:
+        return hit
+    async with _sem():
+        await _limiter.wait()
+        try:
+            async with httpx.AsyncClient() as client:
+                r = await client.get(f"https://pubchem.ncbi.nlm.nih.gov/rest/pug_view/categories/compound/{cid}/JSON",
+                                     timeout=30)
+        except httpx.HTTPError:
+            return 0
+    if r.status_code not in (200, 404):
+        return 0
+    cats = r.json().get("SourceCategories", {}).get("Categories", []) if r.status_code == 200 else []
+    n = next((len(c.get("Sources", [])) for c in cats if c.get("Category") == "Chemical Vendors"), 0)
+    store.cache_set(CACHE_NS + ".vendors", str(cid), n)
+    return n
