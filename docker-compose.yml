@@ -1,0 +1,27 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    env_file: .env
+    # The SQLite store, run logs and the USPTO index live here. Mounting the
+    # host directory keeps runs across rebuilds and lets the container use an
+    # index built on the host; it still runs fine when the index is absent.
+    volumes:
+      - ./data:/app/data
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "5173:5173"
+    depends_on:
+      backend:
+        condition: service_healthy
