@@ -1,0 +1,70 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-ground text-ink font-sans antialiased;
+  font-size: 13.5px;
+}
+
+@layer components {
+  .label {
+    @apply text-label uppercase tracking-[0.14em] text-muted font-medium;
+  }
+  .card {
+    @apply bg-surface border border-hairline rounded-card;
+  }
+  .hairline {
+    @apply border-hairline;
+  }
+  .btn {
+    @apply inline-flex items-center gap-2 rounded-chip px-3.5 py-2 text-[13px] font-medium
+           transition-colors disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+  .btn-primary {
+    @apply btn bg-ink text-white hover:bg-black;
+  }
+  .btn-secondary {
+    @apply btn bg-surface border border-hairline hover:bg-ground;
+  }
+  .tab {
+    @apply rounded-chip px-3 py-1.5 text-[13.5px] font-medium text-muted transition-colors
+           hover:text-ink;
+  }
+  .tab-active {
+    @apply bg-hairline/60 text-ink;
+  }
+  .mono {
+    @apply font-mono text-[12.5px];
+  }
+}
+
+/* thin, unobtrusive scrollbars that suit the paper ground */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #d9d4c8 transparent;
+}
+*::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+*::-webkit-scrollbar-thumb {
+  background: #ded9cd;
+  border-radius: 9px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: #cdc7b8;
+  background-clip: content-box;
+}

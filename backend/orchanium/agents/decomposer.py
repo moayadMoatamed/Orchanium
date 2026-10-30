@@ -17,12 +17,18 @@ from ..graph import KnowledgeGraph, Molecule, Reaction
 AGENT_ID = "decomposer"
 
 
+def target_atoms(ctx: RunContext) -> int | None:
+    """Heavy-atom count of the target, used to tell building blocks from
+    advanced intermediates."""
+    return (ctx.target.description or {}).get("heavy_atoms") if ctx.target else None
+
+
 async def add_molecule(ctx: RunContext, g: KnowledgeGraph, smiles: str, role: str,
                        name: str | None = None) -> Molecule:
     res = await from_smiles(smiles, query=name)
     m = g.molecules.get(res.inchikey)
     if m is None:
-        p = await purchasable.assess(res.inchikey, res.smiles, res.cid)
+        p = await purchasable.assess(res.inchikey, res.smiles, res.cid, target_atoms(ctx))
         m = Molecule(id=res.inchikey, smiles=res.smiles, name=res.name, known=res.known, cid=res.cid,
                      purchasable=p.purchasable and role != "target", purchasable_basis=p.basis,
                      purchasable_reason=p.reason)
