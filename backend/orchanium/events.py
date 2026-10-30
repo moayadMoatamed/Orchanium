@@ -12,7 +12,7 @@ NodeType = Literal[
     "query", "source", "extraction", "vision", "resolution",
     "check", "citation", "agreement", "verdict",
 ]
-Status = Literal["pending", "running", "pass", "warn", "fail"]
+Status = Literal["pending", "running", "pass", "warn", "fail", "skip"]   # skip = informational / not applicable
 Verdict = Literal["literature", "proposed", "rejected", "purchasable"]
 AgentType = Literal[
     "planner", "researcher", "figure_reader", "graph_builder",

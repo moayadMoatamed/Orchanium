@@ -1,0 +1,246 @@
+# Common commercially available building blocks, reagents and solvents.
+# One name per line; scripts/build_building_blocks.py resolves each via PubChem
+# into building_blocks.yaml (InChIKey-keyed). Curated approximation of
+# "purchasable" — not a supplier catalogue.
+
+# --- solvents / bulk
+water
+methanol
+ethanol
+isopropanol
+1-butanol
+tert-butanol
+acetone
+acetonitrile
+dichloromethane
+chloroform
+tetrahydrofuran
+diethyl ether
+ethyl acetate
+toluene
+benzene
+p-xylene
+hexane
+dimethylformamide
+dimethyl sulfoxide
+pyridine
+1,4-dioxane
+N-methyl-2-pyrrolidone
+
+# --- inorganic & gases
+hydrogen
+carbon monoxide
+carbon dioxide
+oxygen
+nitrogen
+ammonia
+hydrogen chloride
+hydrogen bromide
+hydrogen fluoride
+sulfuric acid
+nitric acid
+phosphoric acid
+hydrochloric acid
+sodium hydroxide
+potassium hydroxide
+lithium hydroxide
+sodium carbonate
+potassium carbonate
+cesium carbonate
+sodium bicarbonate
+sodium hydride
+sodium borohydride
+lithium aluminium hydride
+sodium nitrite
+sodium azide
+sodium methoxide
+sodium ethoxide
+potassium tert-butoxide
+hydroxylamine
+hydroxylamine hydrochloride
+hydrazine
+hydrogen peroxide
+potassium permanganate
+sodium hypochlorite
+chlorine
+bromine
+iodine
+thionyl chloride
+oxalyl chloride
+phosphorus oxychloride
+phosphorus pentachloride
+phosphorus tribromide
+chlorosulfonic acid
+sulfur trioxide
+aluminium chloride
+iron(III) chloride
+zinc chloride
+boron trifluoride diethyl etherate
+titanium tetrachloride
+iron
+zinc
+magnesium
+lithium
+sodium
+palladium on carbon
+palladium(II) acetate
+tetrakis(triphenylphosphine)palladium(0)
+copper(I) iodide
+Raney nickel
+platinum dioxide
+triphenylphosphine
+sodium sulfate
+magnesium sulfate
+
+# --- acids / acyl donors
+formic acid
+acetic acid
+acetic anhydride
+acetyl chloride
+propionic acid
+propionyl chloride
+butyric acid
+isobutyric acid
+benzoic acid
+benzoyl chloride
+trifluoroacetic acid
+methanesulfonic acid
+p-toluenesulfonic acid
+methanesulfonyl chloride
+p-toluenesulfonyl chloride
+oxalic acid
+malonic acid
+diethyl malonate
+dimethyl malonate
+ethyl acetoacetate
+methyl acetoacetate
+succinic anhydride
+maleic anhydride
+phthalic anhydride
+chloroacetic acid
+chloroacetyl chloride
+ethyl chloroacetate
+methyl chloroacetate
+ethyl bromoacetate
+2-bromopropionic acid
+di-tert-butyl dicarbonate
+ethyl chloroformate
+
+# --- carbonyls / alkyl halides / simple building blocks
+formaldehyde
+acetaldehyde
+benzaldehyde
+salicylaldehyde
+4-hydroxybenzaldehyde
+anisaldehyde
+cyclohexanone
+cyclopentanone
+acetophenone
+methyl iodide
+methyl bromide
+ethyl bromide
+ethyl iodide
+1-bromopropane
+2-bromopropane
+1-bromobutane
+benzyl bromide
+benzyl chloride
+allyl bromide
+dimethyl sulfate
+diethyl sulfate
+ethylene oxide
+propylene oxide
+epichlorohydrin
+acrylonitrile
+methyl acrylate
+methyl vinyl ketone
+dimethyl carbonate
+urea
+thiourea
+guanidine hydrochloride
+cyanamide
+sodium cyanide
+potassium cyanide
+trimethylsilyl cyanide
+malononitrile
+ethyl cyanoacetate
+
+# --- aromatics
+phenol
+anisole
+aniline
+4-aminophenol
+4-nitrophenol
+2-nitrophenol
+nitrobenzene
+4-nitrochlorobenzene
+chlorobenzene
+bromobenzene
+iodobenzene
+fluorobenzene
+benzonitrile
+benzyl alcohol
+benzylamine
+salicylic acid
+methyl salicylate
+4-hydroxybenzoic acid
+catechol
+resorcinol
+hydroquinone
+2-ethoxybenzoic acid
+4-methoxyphenol
+isobutylbenzene
+ethylbenzene
+cumene
+styrene
+naphthalene
+2-naphthol
+p-toluidine
+4-chlorobenzoic acid
+4-bromotoluene
+4-fluorobenzaldehyde
+phenylacetic acid
+phenylboronic acid
+3-bromopyridine
+2-chloropyridine
+4-chloropyridine hydrochloride
+
+# --- amines / heterocycles
+methylamine
+dimethylamine
+ethylamine
+diethylamine
+triethylamine
+diisopropylethylamine
+piperidine
+piperazine
+1-methylpiperazine
+morpholine
+pyrrolidine
+imidazole
+4-dimethylaminopyridine
+1,8-diazabicyclo[5.4.0]undec-7-ene
+ethylenediamine
+ethanolamine
+glycine
+L-alanine
+hydrazine hydrate
+methylhydrazine
+phenylhydrazine
+ethyl 2,4-dioxoheptanoate
+2-pentanone
+butyronitrile
+indole
+furan
+thiophene
+pyrrole
+quinoline
+
+# --- coupling reagents
+N,N'-dicyclohexylcarbodiimide
+1-ethyl-3-(3-dimethylaminopropyl)carbodiimide
+N,N'-carbonyldiimidazole
+1-hydroxybenzotriazole
+HATU
+N-bromosuccinimide
+N-chlorosuccinimide
