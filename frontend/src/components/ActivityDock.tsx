@@ -19,7 +19,7 @@ export function ActivityDock() {
     if (open) endRef.current?.scrollIntoView({ block: "end" });
   }, [lines.length, open]);
 
-  const active = s.agentOrder.map((id) => s.agents[id]).filter((a) => a?.status === "running");
+  const latest = lines[lines.length - 1];
 
   if (!running && !lines.length) return null;
 
@@ -32,11 +32,11 @@ export function ActivityDock() {
           className="flex w-full items-center gap-3 px-4 py-2.5 text-left"
         >
           {running && <span className="h-[7px] w-[7px] animate-livedot rounded-full" style={{ background: C.accent }} />}
-          <span className="text-[12.5px] font-medium">
-            {running ? (active[0]?.label ?? "Working") : "Activity"}
+          <span className="shrink-0 text-[12.5px] font-medium">
+            {latest?.agent ?? (running ? "Working" : "Activity")}
           </span>
           <span className="min-w-0 flex-1 truncate text-[12.5px] text-muted">
-            {lines.length ? lines[lines.length - 1].text : "—"}
+            {latest?.text ?? "—"}
           </span>
           <span className="shrink-0 text-[11px] text-muted">{open ? "hide" : "show"}</span>
         </button>

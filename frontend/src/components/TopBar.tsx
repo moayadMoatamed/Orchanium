@@ -24,8 +24,14 @@ function statusLine(s: ReturnType<typeof useRun.getState>, secs: number) {
   const mins = secs >= 60 ? `${Math.floor(secs / 60)} min` : `${Math.round(secs)}s`;
   const sources = Object.values(s.prov).filter((n) => n.node_type === "source").length;
   if (s.status === "running") {
-    const running = s.agentOrder.map((id) => s.agents[id]).find((a) => a?.status === "running");
-    return { live: true, text: `${running?.label ?? "Working"} · ${sources} sources` };
+    // the phase is whichever agent spoke last, not whichever started first
+    let latest: { label: string; ts: number } | null = null;
+    for (const id of s.agentOrder) {
+      const a = s.agents[id];
+      const last = a?.logs[a.logs.length - 1];
+      if (last && (!latest || last.ts > latest.ts)) latest = { label: a.label, ts: last.ts };
+    }
+    return { live: true, text: `${latest?.label ?? "Working"} · ${sources} sources` };
   }
   if (s.status === "done") return { live: false, text: `Finished · ${mins} · ${sources} sources read` };
   if (s.status === "failed") return { live: false, text: `Stopped · ${mins}` };

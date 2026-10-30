@@ -23,12 +23,13 @@ function conditionsOf(s: ReturnType<typeof useRun.getState>, stepId: string): st
   const best = step?.precedents?.find((p) => p.outcome === "success");
   if (best) {
     const c = best.conditions ?? {};
+    const pretty = (v: unknown) => String(v).replace(/_/g, " ");
     const parts = [
       c.temperature_c != null ? `${c.temperature_c} °C` : null,
       c.solvent, c.catalyst, c.time,
-    ].filter(Boolean);
+    ].filter(Boolean).map(pretty);
     if (parts.length) return parts.join(", ");
-    if (c.text) return String(c.text);
+    if (c.text) return pretty(c.text);
   }
   const reagents = s.reactions[stepId]?.classes?.[0];
   return reagents ? "see precedents" : "—";
