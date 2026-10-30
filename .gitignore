@@ -1,0 +1,10 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+data/*.sqlite*
+node_modules/
+frontend/dist/
+.DS_Store
+scripts/_smoke_out/
