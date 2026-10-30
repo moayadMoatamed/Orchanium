@@ -109,7 +109,10 @@ def strict_schema(model: type[BaseModel]) -> dict:
         if isinstance(node, dict):
             if "$ref" in node:
                 return walk(copy.deepcopy(defs[node["$ref"].split("/")[-1]]))
-            node = {k: walk(v) for k, v in node.items() if k not in ("default", "title")}
+            # strip schema annotations, but never entries of a `properties` map
+            # (a field may legitimately be called "title" or "default")
+            node = {k: ({pk: walk(pv) for pk, pv in v.items()} if k == "properties" else walk(v))
+                    for k, v in node.items() if k not in ("default", "title")}
             if node.get("type") == "object" and "properties" in node:
                 node["additionalProperties"] = False
                 node["required"] = list(node["properties"].keys())

@@ -50,3 +50,15 @@ def test_parse_output_uses_last_message_and_collects_searches():
 def test_normalize_url_keeps_path_case():
     assert normalize_url("HTTPS://PubChem.NCBI.nlm.nih.gov/Compound/Aspirin") == \
         "https://pubchem.ncbi.nlm.nih.gov/Compound/Aspirin"
+
+
+class HasTitleField(BaseModel):
+    title: str
+    default: int
+
+
+def test_strict_schema_keeps_fields_named_title_and_default():
+    s = strict_schema(HasTitleField)
+    assert set(s["properties"]) == {"title", "default"}
+    assert s["required"] == ["title", "default"]
+    assert "title" not in s["properties"]["title"]          # annotation stripped inside
