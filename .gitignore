@@ -11,3 +11,4 @@ scripts/_smoke_out/
 frontend/node_modules/
 frontend/dist/
 scripts/_smoke_out/
+frontend/tsconfig.tsbuildinfo
