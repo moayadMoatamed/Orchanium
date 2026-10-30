@@ -38,11 +38,13 @@ def live_bus(run_id: str) -> EventBus | None:
 class Orchestrator:
     def __init__(self, query: str, *, run_id: str | None = None, blind: bool = False,
                  hidden: list[str] | None = None, hidden_molecules: list[str] | None = None,
+                 similarity_cap: float | None = None,
                  web_budget: int = 4,
                  debate_rounds: int = 2, debate_research_budget: int = 2, skeptic_model: str | None = None,
                  extra_sink: Callable[[Event], None] | None = None):
         self.query, self.blind, self.hidden = query, blind, hidden or []
         self.hidden_molecules = hidden_molecules or []
+        self.similarity_cap = similarity_cap
         self.web_budget, self.debate_rounds = web_budget, debate_rounds
         self.debate_research_left = debate_research_budget
         self.skeptic_model = skeptic_model
@@ -125,7 +127,8 @@ class Orchestrator:
                                    "started_at": time.time()})
         client = MetaClient(self.budget)
         self.ctx = ctx = RunContext(run_id=self.run_id, bus=bus, client=client, blind=self.blind,
-                                    hidden=self.hidden, hidden_molecules=self.hidden_molecules)
+                                    hidden=self.hidden, hidden_molecules=self.hidden_molecules,
+                                    similarity_cap=self.similarity_cap)
         g = self.g
         status, v, report, dbt = "failed", None, "", None
         try:

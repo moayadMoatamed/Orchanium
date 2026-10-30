@@ -67,24 +67,27 @@ async def main():
     ap.add_argument("patent")
     ap.add_argument("--web", type=int, default=4)
     ap.add_argument("--rounds", type=int, default=2)
+    ap.add_argument("--strict", type=float, default=None,
+                    help="also hide evidence with molecules more similar than this to the target/intermediates")
     a = ap.parse_args()
     cands = {c["patent"]: c for c in json.loads((ROOT / "data" / "holdout_candidates.json").read_text())}
     c = cands[a.patent]
     truth = ground_truth(c)
-    hidden_mols = [rd.inchikey(t["product"]) for t in truth[:-1]]          # intermediates
+    hidden_mols = [t["product"] for t in truth[:-1]]                       # intermediates (SMILES)
     orch = Orchestrator(c["target"], blind=True, hidden=[a.patent], hidden_molecules=hidden_mols,
+                        similarity_cap=a.strict,
                         web_budget=a.web, debate_rounds=a.rounds,
                         extra_sink=lambda e: print(f"[{e.data['agent_id']:>16}] {e.data['text'][:200]}", flush=True)
                         if e.kind == "agent.log" and "🔧" not in e.data["text"] else None)
     res = await orch.run()
     v = res["verdict"]
-    result = {"patent": a.patent, "target": c["target"], "run_id": res["run_id"],
+    result = {"patent": a.patent, "target": c["target"], "run_id": res["run_id"], "strict": a.strict,
               "cost_usd": res["summary"]["cost"]["usd"], **score(res["graph"], v, truth)}
     g = res["graph"]
     result["proposed_route"] = [f"{' + '.join(g.molecules[x].name for x in g.reactions[h].reactants)} → "
                                 f"{g.molecules[g.reactions[h].product].name}  [{', '.join(g.reactions[h].classes)}]"
                                 for h in v.route]
-    out = ROOT / "data" / "eval" / f"holdout_{a.patent}.json"
+    out = ROOT / "data" / "eval" / f"holdout_{a.patent}{'_strict' if a.strict else ''}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(result, indent=1, default=str))
     print("\n" + json.dumps(result, indent=1, default=str))

@@ -43,6 +43,13 @@ async def check_one(ctx: RunContext, g: KnowledgeGraph, clue: Clue) -> str:
         status, summary = "skip", f"structured record: {clue.source.citation or clue.source.title} (link provided)"
     else:
         page = await fetch_page(clue.source.url)
+        if (page.get("status") != 200 or len(page.get("text") or "") < 200) and clue.source.citation:
+            # the same patent is readable on Google Patents even when the cited host blocks bots
+            alt = f"https://patents.google.com/patent/{clue.source.citation}/en"
+            alt_page = await fetch_page(alt)
+            if alt_page.get("status") == 200:
+                page = alt_page
+                details["verified_at"] = alt
         text, code = page.get("text") or "", page.get("status")
         details.update({"http_status": code, "page_chars": len(text), "fetch_error": page.get("error")})
         if code is None or code in (404, 410):

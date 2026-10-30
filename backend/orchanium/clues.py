@@ -12,6 +12,7 @@ from .chem import purchasable
 from .chem import rdkit_utils as rd
 from .chem.critic import Species, critique
 from .chem.resolver import Resolved, resolve_many
+from .chem.similarity import tanimoto
 from .context import RunContext, short_id
 from .events import ProvNode
 from .graph import KnowledgeGraph, Molecule, Reaction
@@ -53,6 +54,45 @@ async def gather(ctx: RunContext, g: KnowledgeGraph, source: ClueSource, need: R
 
 _PATENT = re.compile(r"(?<![A-Za-z])([A-Z]{2})0*(\d{5,})", re.I)
 
+# ---------------------------------------------------------------- evidence policy
+# Every source is classified once; supplier product pages are never evidence
+# (a listing says a compound is sold, not that a reaction works).
+_DOMAIN_KIND = [
+    (("patents.google.", "patentimages.", "freepatentsonline.", "espacenet.", "patentscope.", "justia.",
+      "uspto.gov", "lens.org"), "patent"),
+    (("orgsyn.org",), "procedure"),
+    (("pubs.acs.org", "rsc.org", "sciencedirect.", "wiley.com", "springer.", "nature.com", "mdpi.com",
+      "ncbi.nlm.nih.gov", "europepmc.", "doi.org", "beilstein-journals.", "thieme-connect.", "chemrxiv.",
+      "tandfonline.", "frontiersin.", "acs.org", "science.org"), "paper"),
+    (("wikipedia.org",), "encyclopedia"),
+    (("libretexts.org", ".edu", ".ac.uk"), "textbook"),
+    (("benchchem.", "evitachem.", "smolecule.", "vulcanchem.", "chemicalbook.", "molport.", "sigmaaldrich.",
+      "fishersci.", "tcichemicals.", "thermofisher.", "ambeed.", "bldpharm.", "chemscene.", "medchemexpress.",
+      "selleckchem.", "combi-blocks.", "chemsrc.", "guidechem.", "lookchem.", "echemi.", "chemblink.",
+      "aksci.", "apolloscientific.", "fluorochem.", "biosynth.", "cymitquimica.", "angenechemical."), "vendor"),
+]
+_SHOP_SIGNALS = re.compile(r"/(product|products|buy|catalog|shop|item)[/-]|\bbuy\b|price|in stock|add to cart", re.I)
+NOT_EVIDENCE = {"vendor"}
+
+
+def classify_source(url: str | None, title: str | None, claimed: str) -> str:
+    host = urlsplit(url or "").netloc.lower()
+    kind = next((k for needles, k in _DOMAIN_KIND if any(n in host for n in needles)), None)
+    if kind:
+        return kind
+    if _SHOP_SIGNALS.search(urlsplit(url or "").path) or _SHOP_SIGNALS.search(title or ""):
+        return "vendor"
+    return claimed
+
+
+def patent_id(text: str | None, default_country: str = "US") -> str | None:
+    """Patent number in a URL/string; a bare number on a patent page is assumed US."""
+    m = _PATENT.search(text or "")
+    if m:
+        return f"{m.group(1).upper()}{m.group(2)}"
+    bare = re.search(r"/(\d{7,11})(?:[/?#]|$)", text or "")
+    return f"{default_country}{bare.group(1)}" if bare else None
+
 
 def _source_keys(text: str) -> set[str]:
     """Comparable identifiers in a source string: patent cores (country + digits,
@@ -60,16 +100,25 @@ def _source_keys(text: str) -> set[str]:
     return {f"{c.upper()}{d}" for c, d in _PATENT.findall(text or "")} | {(text or "").lower()}
 
 
-def _hidden_hit(ctx: RunContext, resolved: list[Resolved], clue: Clue) -> str | None:
+def _hidden_hit(ctx: RunContext, resolved: list[Resolved], clue: Clue,
+                products: list[Resolved] | None = None) -> str | None:
     """Why a clue must be hidden in blind mode, or None.
-    Blind mode hides clues that contain the target, name it (if it has a real
-    name), or come from an explicitly hidden source (e.g. the held-out patent)."""
+    Blind mode hides clues that contain the target or a hidden molecule, name
+    the target (if it has a real name), come from an explicitly hidden source
+    (e.g. the held-out patent), or, in strict mode, MAKE a product more similar
+    than `similarity_cap` to the target or a hidden molecule (ingredients are
+    not judged: using the same buyable starting material is not leakage)."""
     if not ctx.blind or not ctx.target:
         return None
-    blocks = {k.split("-")[0] for k in [ctx.target.inchikey] + ctx.hidden_molecules}
+    protected = [ctx.target.smiles] + ctx.hidden_molecules
+    blocks = {rd.inchikey(s).split("-")[0] for s in protected}
     for r in resolved:
         if r.ok and r.inchikey.split("-")[0] in blocks:
             return "contains the target" if r.inchikey == ctx.target.inchikey else f"contains hidden molecule {r.name}"
+    if ctx.similarity_cap is not None:
+        for r in (products if products is not None else resolved):
+            if r.ok and (sim := max(tanimoto(r.smiles, s) for s in protected)) > ctx.similarity_cap:
+                return f"makes {r.name}, {sim:.0%} similar to a hidden molecule (strict mode)"
     text = " ".join(filter(None, [clue.source.snippet, clue.source.title, clue.source.url, clue.source.citation]))
     if ctx.target.known and ctx.target.name.lower() in text.lower():
         return "names the target"
@@ -100,7 +149,10 @@ async def ingest(ctx: RunContext, g: KnowledgeGraph, clues: list[Clue], query_id
         refs = clue.reactants + clue.products
         res = await resolve_many(refs + clue.reagents)
         main_res, reagent_res = res[:len(refs)], res[len(refs):]
-        if why := _hidden_hit(ctx, main_res, clue):
+        if clue.source.kind in NOT_EVIDENCE:
+            ctx.log(agent_id, f"not evidence: supplier product page ({clue.source.title[:60]})")
+            continue
+        if why := _hidden_hit(ctx, main_res, clue, products=main_res[len(clue.reactants):]):
             ctx.log(agent_id, f"blind mode: dropped a clue that {why} ({clue.source.title[:60]})")
             continue
         url = clue.source.url or clue.source.citation or clue.id

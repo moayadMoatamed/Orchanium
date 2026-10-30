@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 from .chem.resolver import MolRef
 
-SourceKind = Literal["patent", "paper", "procedure", "textbook", "encyclopedia", "web", "database"]
+SourceKind = Literal["patent", "paper", "procedure", "textbook", "encyclopedia", "web", "database", "vendor"]
 
 
 # ---------------------------------------------------------------- clues (any source)
@@ -89,4 +89,5 @@ class TargetInfo(BaseModel):
     inchikey: str
     cid: int | None = None
     known: bool = False                  # has a PubChem record
+    vendors: int = 0                     # suppliers listing it in PubChem (>0 = it has been made)
     description: dict = Field(default_factory=dict)

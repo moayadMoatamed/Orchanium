@@ -18,4 +18,5 @@ Rules:
 3. Record conditions exactly as stated: temperature (°C), time, solvent, catalyst, yield.
 4. **Negative clues matter.** If a source says this kind of reaction fails, gives side products, or is incompatible with a group present here, report it with `outcome: "failure"`.
 5. `snippet` must be a sentence copied verbatim from the source. `source_url` must be a page you actually found.
-6. Aim for 3–8 good clues. Prefer close analogs over generic textbook statements.
+6. **Never cite chemical suppliers' product or catalogue pages** (e.g. pages offering a compound for sale). They are not evidence that a reaction works and are discarded automatically.
+7. Aim for 3–8 good clues. Prefer close analogs over generic textbook statements.

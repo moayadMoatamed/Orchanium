@@ -2,30 +2,13 @@
 reactions of the same kind on similar substrates (including failures)."""
 from __future__ import annotations
 
-from urllib.parse import urlsplit
-
 from ..chem.resolver import MolRef
-from ..clues import ClueSource
+from ..clues import ClueSource, classify_source, patent_id
 from ..config import settings
 from ..context import RunContext, prompt, short_id
 from ..graph import KnowledgeGraph
 from ..meta.client import normalize_url
 from ..models import Clue, ClueFindings, Conditions, ResearchNeed, SourceRef
-
-_DOMAIN_KIND = [
-    (("patents.google.", "patentimages.", "freepatentsonline.", "espacenet.", "patentscope.", "justia."), "patent"),
-    (("orgsyn.org",), "procedure"),
-    (("pubs.acs.org", "rsc.org", "sciencedirect.", "wiley.com", "springer.", "nature.com", "mdpi.com",
-      "ncbi.nlm.nih.gov", "europepmc.", "doi.org", "beilstein-journals.", "thieme-connect.", "chemrxiv."), "paper"),
-    (("wikipedia.org",), "encyclopedia"),
-    (("libretexts.org", ".edu", ".ac.uk"), "textbook"),
-]
-
-
-def source_kind(url: str, claimed: str) -> str:
-    host = urlsplit(url).netloc.lower()
-    return next((kind for needles, kind in _DOMAIN_KIND if any(n in host for n in needles)), claimed)
-
 
 class WebSource(ClueSource):
     name = "web"
@@ -52,8 +35,9 @@ class WebSource(ClueSource):
                 conditions=Conditions(temperature_c=c.temperature_c, time=c.time, solvent=c.solvent,
                                       catalyst=c.catalyst, text=c.conditions_text),
                 yield_pct=c.yield_pct, outcome=c.outcome,
-                source=SourceRef(kind=source_kind(url, c.source_type), title=c.source_title, url=url,
-                                 snippet=c.snippet)))
+                source=SourceRef(kind=classify_source(url, c.source_title, c.source_type), title=c.source_title,
+                                 url=url, snippet=c.snippet,
+                                 citation=patent_id(url) if classify_source(url, None, "web") == "patent" else None)))
         queries = [s.query for s in resp.searches if s.query]
         return (f"{len(queries)} web searches", {"queries": queries, "notes": found.notes, "usd": resp.usd,
                                                  "pages_seen": sum(len(s.results) for s in resp.searches)}, clues)

@@ -153,3 +153,28 @@ def test_template_report_needs_no_llm():
                                                      "source": "US1"}]}],
                           "evidence": {"clues_by_source": {"uspto": 3}, "citation_checks": {"skip": 3}}})
     assert "**Plausible**" in md and "[1](https://x)" in md and "\n" in md
+
+
+def test_evidence_policy_and_patent_ids():
+    from orchanium.clues import classify_source, patent_id
+    assert classify_source("https://www.benchchem.com/product/abc", "x", "web") == "vendor"
+    assert classify_source("https://shop.example.cn/item/12", "Buy 2-fluorobenzamide", "web") == "vendor"
+    assert classify_source("https://patents.justia.com/patent/9399619", "p", "web") == "patent"
+    assert classify_source("https://example.org/blog", "Notes", "web") == "web"
+    assert patent_id("https://patents.justia.com/patent/9399619") == "US9399619"
+    assert patent_id("https://patents.google.com/patent/US08420823B2/en") == "US8420823"
+
+
+def test_strict_mode_hides_near_identical_evidence():
+    from orchanium.clues import _hidden_hit
+    from orchanium.chem.resolver import Resolved
+    ctx = _ctx(PARACETAMOL)
+    ctx.blind, ctx.similarity_cap = True, 0.5
+    near = "CC(=O)Nc1ccc(OC)cc1"                       # methacetin, very close to paracetamol
+    far = "CC(=O)Nc1ccccc1Cl"
+    r = lambda s: Resolved(ok=True, query=s, inchikey=rd.inchikey(s), smiles=s, name=s)  # noqa: E731
+    clue = Clue(id="c", origin="web", reactants=[], products=[], source=SourceRef(kind="paper", title="t"))
+    from orchanium.chem.similarity import tanimoto
+    assert tanimoto(near, PARACETAMOL) > 0.5 > tanimoto(far, PARACETAMOL)
+    assert "strict" in _hidden_hit(ctx, [r(near)], clue)
+    assert _hidden_hit(ctx, [r(far)], clue) is None

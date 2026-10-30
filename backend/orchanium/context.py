@@ -34,7 +34,8 @@ class RunContext:
     target: Any = None                               # TargetInfo once planned
     blind: bool = False                              # hide clues that contain/name the target
     hidden: list[str] = field(default_factory=list)  # blind mode: also hide these sources (patent ids, URLs)
-    hidden_molecules: list[str] = field(default_factory=list)  # blind mode: also hide clues containing these (InChIKeys)
+    hidden_molecules: list[str] = field(default_factory=list)  # blind mode: also hide clues containing these (SMILES)
+    similarity_cap: float | None = None              # strict blind mode: hide clues with molecules more similar than this
     prov_nodes: dict[str, ProvNode] = field(default_factory=dict)
 
     def prov(self, node: ProvNode) -> ProvNode:
