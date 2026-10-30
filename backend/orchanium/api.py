@@ -7,7 +7,7 @@ import asyncio
 import json
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
@@ -64,29 +64,50 @@ async def get_run(run_id: str) -> dict:
 
 
 def _sse(event: Event) -> str:
-    return f"event: {event.kind}\ndata: {json.dumps(event.model_dump(), default=str)}\n\n"
+    """Each frame carries its sequence number as the SSE id, so a dropped
+    connection resumes exactly where it left off (the browser replays it back
+    in the Last-Event-ID header)."""
+    return (f"id: {event.seq}\nevent: {event.kind}\n"
+            f"data: {json.dumps(event.model_dump(), default=str)}\n\n")
+
+
+SSE_HEADERS = {"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"}
+HEARTBEAT_S = 15.0
 
 
 @app.get("/api/runs/{run_id}/events")
-async def stream(run_id: str, replay_speed: float = Query(0, description="0 = as fast as possible")):
+async def stream(
+    request: Request,
+    run_id: str,
+    replay_speed: float = Query(0, description="0 = as fast as possible"),
+    since: int = Query(0, description="resume after this sequence number"),
+):
     """Live runs stream from the bus (history first, then live). Finished runs
-    replay from SQLite, optionally paced by their original timing."""
+    replay from SQLite, optionally paced by their original timing. Both resume
+    from `since` / Last-Event-ID, so a dropped connection loses nothing."""
+    resume = max(since, int(request.headers.get("last-event-id") or 0))
     bus = live_bus(run_id)
+
     if bus is not None and not bus.closed:
         queue = bus.subscribe()
 
         async def live():
             while True:
-                evt = await queue.get()
+                try:
+                    evt = await asyncio.wait_for(queue.get(), timeout=HEARTBEAT_S)
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"      # keeps proxies from closing an idle stream
+                    continue
                 if evt is None:
                     yield "event: end\ndata: {}\n\n"
                     return
-                yield _sse(evt)
-        return StreamingResponse(live(), media_type="text/event-stream",
-                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+                if evt.seq > resume:
+                    yield _sse(evt)
 
-    events = get_store().events(run_id)
-    if not events:
+        return StreamingResponse(live(), media_type="text/event-stream", headers=SSE_HEADERS)
+
+    events = [e for e in get_store().events(run_id) if e.seq > resume]
+    if not events and not resume:
         raise HTTPException(404, "unknown run")
 
     async def replay():
@@ -97,8 +118,8 @@ async def stream(run_id: str, replay_speed: float = Query(0, description="0 = as
             prev = e.ts
             yield _sse(e)
         yield "event: end\ndata: {}\n\n"
-    return StreamingResponse(replay(), media_type="text/event-stream",
-                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+    return StreamingResponse(replay(), media_type="text/event-stream", headers=SSE_HEADERS)
 
 
 @app.get("/api/depict")

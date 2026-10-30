@@ -169,21 +169,45 @@ export const useRun = create<RunState>((set, get) => ({
     }
   },
 
+  /** A run can be long and mostly quiet, so the stream may be dropped by the
+   *  browser or a proxy. Every frame carries its sequence number; EventSource
+   *  reconnects on its own and the server resumes from the last one seen, so
+   *  nothing is lost and nothing is applied twice. */
   connect: (runId, replaySpeed = 0) => {
-    const es = new EventSource(`/api/runs/${runId}/events?replay_speed=${replaySpeed}`);
-    const kinds = [
-      "run.status", "agent.status", "agent.log", "prov.node",
-      "graph.molecule", "graph.reaction", "route", "cost", "report",
-    ];
-    for (const kind of kinds) {
-      es.addEventListener(kind, (e) => {
-        const payload = JSON.parse((e as MessageEvent).data);
-        get().apply(kind, payload.data, payload.ts);
+    let closed = false;
+    let seen = 0;
+    let es: EventSource | null = null;
+
+    const open = () => {
+      if (closed) return;
+      es = new EventSource(`/api/runs/${runId}/events?replay_speed=${replaySpeed}&since=${seen}`);
+      const kinds = [
+        "run.status", "agent.status", "agent.log", "prov.node",
+        "graph.molecule", "graph.reaction", "route", "cost", "report",
+      ];
+      for (const kind of kinds) {
+        es.addEventListener(kind, (e) => {
+          const payload = JSON.parse((e as MessageEvent).data);
+          if (payload.seq <= seen) return;          // already applied
+          seen = payload.seq;
+          get().apply(kind, payload.data, payload.ts);
+        });
+      }
+      es.addEventListener("end", () => {
+        closed = true;
+        es?.close();
       });
-    }
-    es.addEventListener("end", () => es.close());
-    es.onerror = () => es.close();
-    return () => es.close();
+      es.onerror = () => {
+        es?.close();
+        if (!closed) setTimeout(open, 1200);        // resume from `seen`
+      };
+    };
+
+    open();
+    return () => {
+      closed = true;
+      es?.close();
+    };
   },
 }));
 

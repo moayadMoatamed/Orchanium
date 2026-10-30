@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ActivityDock } from "./components/ActivityDock";
 import { DebateView } from "./components/DebateView";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { GraphView } from "./components/GraphView";
 import { ResultView } from "./components/ResultView";
 import { RouteRail } from "./components/RouteRail";
@@ -91,18 +92,22 @@ export default function App() {
       <main className="flex min-h-0 flex-1">
         {withRail && <RouteRail />}
         <div className="min-w-0 flex-1 overflow-hidden">
-          {s.tab === "result" && (
-            <div className="h-full overflow-y-auto pb-24">
-              <ResultView />
-            </div>
-          )}
-          {s.tab === "graph" && <GraphView />}
-          {s.tab === "verification" && <VerificationView />}
-          {s.tab === "debate" && <DebateView />}
+          <ErrorBoundary name={s.tab} key={s.tab}>
+            {s.tab === "result" && (
+              <div className="h-full overflow-y-auto pb-28">
+                <ResultView />
+              </div>
+            )}
+            {s.tab === "graph" && <GraphView />}
+            {s.tab === "verification" && <VerificationView />}
+            {s.tab === "debate" && <DebateView />}
+          </ErrorBoundary>
         </div>
       </main>
 
-      <ActivityDock />
+      <ErrorBoundary name="activity">
+        <ActivityDock />
+      </ErrorBoundary>
     </div>
   );
 }

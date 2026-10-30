@@ -30,7 +30,8 @@ function stageSummary(key: string, nodes: ProvNode[], s: ReturnType<typeof useRu
       const srcs = nodes.filter((n) => n.node_type === "source");
       const kinds = new Map<string, number>();
       for (const n of srcs) {
-        const k = n.details?.kind ?? n.details?.source_type ?? "web";
+        const raw = n.details?.kind ?? n.details?.source_type ?? "web";
+        const k = raw === "database" ? "patent record" : raw;
         kinds.set(k, (kinds.get(k) ?? 0) + 1);
       }
       return {
@@ -99,7 +100,7 @@ function StageCard({
     <Card
       onClick={onClick}
       active={active}
-      className={`min-w-[196px] flex-1 px-4 py-3.5 ${empty ? "opacity-45" : ""}`}
+      className={`w-full px-4 py-3.5 ${empty ? "opacity-45" : ""}`}
     >
       <div className="label mb-2 flex items-center gap-1.5">
         <span className="tabular-nums">{index} ·</span> {title}
@@ -159,10 +160,10 @@ export function VerificationView() {
         </h1>
         <div className="mt-1.5 text-[14px] text-muted">{step.reaction}</div>
 
-        {/* the chain */}
-        <div className="mt-7 flex flex-wrap items-stretch gap-0">
+        {/* the chain — one continuous line, left to right */}
+        <div className="-mx-6 mt-7 flex items-stretch overflow-x-auto px-6 pb-2">
           {stages.map((st, i) => (
-            <div key={st.key} className="flex min-w-[196px] flex-1 items-stretch">
+            <div key={st.key} className="flex w-[200px] shrink-0 items-stretch">
               <StageCard
                 index={i + 1}
                 title={st.title}
@@ -172,7 +173,7 @@ export function VerificationView() {
                 onClick={() => s.select({ node: st.nodes[0]?.id ?? null })}
               />
               {i < stages.length - 1 && (
-                <div className="flex w-5 items-center" aria-hidden>
+                <div className="flex w-5 shrink-0 items-center" aria-hidden>
                   <div className="h-px w-full" style={{ background: C.hairline }} />
                 </div>
               )}
@@ -246,7 +247,9 @@ export function VerificationView() {
                   key={n.id}
                   className="flex items-start gap-4 border-b border-hairline py-3 text-[13.5px] last:border-0"
                 >
-                  <span className="w-[64px] shrink-0 text-muted">{n.details?.kind ?? "web"}</span>
+                  <span className="w-[96px] shrink-0 text-muted">
+                    {n.details?.kind === "database" ? "patent record" : (n.details?.kind ?? "web")}
+                  </span>
                   <a
                     href={n.details?.url ?? undefined}
                     target="_blank"
