@@ -127,3 +127,29 @@ def test_budget_reserve_blocks_early_phase_overspend():
     b.reserve = 0.5
     with pytest.raises(BudgetExceeded):
         b.check("llm")                   # research may only use half
+
+
+def test_hidden_source_matches_patent_number_variants():
+    from orchanium.clues import _hidden_hit
+    ctx = _ctx(PARACETAMOL)
+    ctx.blind, ctx.hidden = True, ["US08420823B2"]
+    other = Clue(id="x", origin="web", reactants=[MolRef(smiles="CCO")], products=[MolRef(smiles="CC=O")],
+                 source=SourceRef(kind="patent", title="Some patent", url="https://patents.google.com/patent/US8420823B2/en"))
+    assert _hidden_hit(ctx, [], other) and "hidden source" in _hidden_hit(ctx, [], other)
+    other.source.url = "https://patents.google.com/patent/US9999999B2/en"
+    assert _hidden_hit(ctx, [], other) is None
+    ctx.target.known = False                   # an unnamed target must not filter on the word "target"
+    other.source.title = "Target engagement study"
+    assert _hidden_hit(ctx, [], other) is None
+
+
+def test_template_report_needs_no_llm():
+    from orchanium.agents.reporter import template_report
+    md = template_report({"verdict": {"label": "Plausible", "confidence": 0.67, "reasons": ["r1"]},
+                          "starting_materials": ["a"], "debate": None,
+                          "steps": [{"reaction": "a + b → c", "transformation": ["Amide"], "grade": "analog",
+                                     "precedent_score": 0.7,
+                                     "precedents": [{"url": "https://x", "reaction": "x → y", "score": 0.7,
+                                                     "source": "US1"}]}],
+                          "evidence": {"clues_by_source": {"uspto": 3}, "citation_checks": {"skip": 3}}})
+    assert "**Plausible**" in md and "[1](https://x)" in md and "\n" in md
