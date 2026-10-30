@@ -48,23 +48,28 @@ class CostTracker(BaseModel):
 
 
 class Budget:
-    """Per-run guardrails. `on_change` is called with the tracker after every
-    billed call so the UI cost meter stays live."""
+    """Per-run guardrails. `reserve` is the share of every cap that the current
+    phase must leave untouched for later phases (the orchestrator lowers it as
+    the run progresses, so research can never starve the debate or the report).
+    `on_change` is called after every billed call so the UI cost meter stays live."""
 
     def __init__(self, on_change: Callable[[CostTracker], None] | None = None):
         self.cost = CostTracker()
         self.on_change = on_change
+        self.reserve = 0.0
 
     def check(self, kind: str = "llm") -> None:
-        c = self.cost
-        if kind == "llm" and c.llm_calls >= settings.max_llm_calls:
-            raise BudgetExceeded(f"LLM call cap reached ({settings.max_llm_calls})")
-        if kind == "llm" and c.tokens_in + c.tokens_out >= settings.max_tokens:
-            raise BudgetExceeded(f"token cap reached ({settings.max_tokens})")
-        if kind == "search" and c.searches >= settings.max_searches:
-            raise BudgetExceeded(f"web search cap reached ({settings.max_searches})")
-        if kind == "sam" and c.sam_images >= settings.max_sam_images:
-            raise BudgetExceeded(f"SAM image cap reached ({settings.max_sam_images})")
+        c, room = self.cost, 1.0 - self.reserve
+        limits = {
+            "llm": [(c.llm_calls, settings.max_llm_calls, "LLM calls"),
+                    (c.tokens_in + c.tokens_out, settings.max_tokens, "tokens"), (c.usd, settings.max_usd, "USD")],
+            "search": [(c.searches, settings.max_searches, "web searches"), (c.usd, settings.max_usd, "USD")],
+            "sam": [(c.sam_images, settings.max_sam_images, "SAM images"), (c.usd, settings.max_usd, "USD")],
+        }[kind]
+        for used, cap, what in limits:
+            if used >= cap * room:
+                phase = f" (this phase may use {room:.0%} of it)" if self.reserve else ""
+                raise BudgetExceeded(f"{what} budget reached: {used:g} of {cap:g}{phase}")
 
     def add_llm(self, model: str, usage: dict, searches: int) -> float:
         p_in, p_cached, p_out = settings.price.get(model, settings.price["muse-spark-1.3"])
@@ -232,6 +237,7 @@ class MetaClient:
         effort: str = "low",
         model: str | None = None,
         max_output_tokens: int | None = None,
+        max_tool_calls: int | None = None,
         use_cache: bool = True,
     ) -> MetaResponse:
         model = model or settings.meta_model
@@ -244,6 +250,8 @@ class MetaClient:
         if web_search:
             body["tools"] = [{"type": "web_search", "search_context_size": search_context}]
             body["include"] = ["web_search_call.results"]
+            if max_tool_calls:
+                body["max_tool_calls"] = max_tool_calls
         if max_output_tokens:
             body["max_output_tokens"] = max_output_tokens
 

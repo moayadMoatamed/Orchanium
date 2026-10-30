@@ -22,7 +22,7 @@ async def add_molecule(ctx: RunContext, g: KnowledgeGraph, smiles: str, role: st
     res = await from_smiles(smiles, query=name)
     m = g.molecules.get(res.inchikey)
     if m is None:
-        p = purchasable.check(res.inchikey, res.smiles)
+        p = await purchasable.assess(res.inchikey, res.smiles, res.cid)
         m = Molecule(id=res.inchikey, smiles=res.smiles, name=res.name, known=res.known, cid=res.cid,
                      purchasable=p.purchasable and role != "target", purchasable_basis=p.basis,
                      purchasable_reason=p.reason)

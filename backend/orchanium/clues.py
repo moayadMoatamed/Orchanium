@@ -7,6 +7,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from urllib.parse import urlsplit
 
+from .chem import purchasable
 from .chem import rdkit_utils as rd
 from .chem.critic import Species, critique
 from .chem.resolver import Resolved, resolve_many
@@ -60,11 +61,10 @@ def _blind_hit(ctx: RunContext, resolved: list[Resolved], clue: Clue) -> bool:
     return ctx.target.name.lower() in text
 
 
-def _add_clue_molecule(ctx: RunContext, g: KnowledgeGraph, r: Resolved) -> Molecule:
-    from .chem import purchasable
+async def _add_clue_molecule(ctx: RunContext, g: KnowledgeGraph, r: Resolved) -> Molecule:
     m = g.molecules.get(r.inchikey)
     if m is None:
-        p = purchasable.check(r.inchikey, r.smiles)
+        p = await purchasable.assess(r.inchikey, r.smiles, r.cid)
         m = Molecule(id=r.inchikey, smiles=r.smiles, name=r.name or r.query, known=r.known, cid=r.cid,
                      purchasable=p.purchasable and r.inchikey != g.target_id,
                      purchasable_basis=p.basis, purchasable_reason=p.reason)
@@ -103,8 +103,8 @@ async def ingest(ctx: RunContext, g: KnowledgeGraph, clues: list[Clue], query_id
                               details=r.model_dump()))
         if not all(r.ok for r in main_res):
             continue
-        reactants = list(dict.fromkeys(_add_clue_molecule(ctx, g, r).id for r in main_res[:len(clue.reactants)]))
-        prods = [_add_clue_molecule(ctx, g, r) for r in main_res[len(clue.reactants):]]
+        reactants = list(dict.fromkeys([(await _add_clue_molecule(ctx, g, r)).id for r in main_res[:len(clue.reactants)]]))
+        prods = [await _add_clue_molecule(ctx, g, r) for r in main_res[len(clue.reactants):]]
         main = max(prods, key=lambda m: rd.parse(m.smiles).GetNumHeavyAtoms())
         rx_id = short_id("obs", sorted(reactants), main.id)
         rx = g.reactions.get(rx_id)

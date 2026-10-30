@@ -6,6 +6,7 @@ from urllib.parse import urlsplit
 
 from ..chem.resolver import MolRef
 from ..clues import ClueSource
+from ..config import settings
 from ..context import RunContext, prompt, short_id
 from ..graph import KnowledgeGraph
 from ..meta.client import normalize_url
@@ -36,7 +37,8 @@ class WebSource(ClueSource):
                    reactants=", ".join(need.reactant_names), product=need.product_name,
                    analogs=", ".join(need.analog_names) or "none known yet",
                    focus=f"- **Specific question to investigate:** {need.focus}" if need.focus else ""),
-            schema=ClueFindings, web_search=True, search_context="medium", effort="medium")
+            schema=ClueFindings, web_search=True, search_context="medium", effort="medium",
+            max_tool_calls=settings.searches_per_research)
         found: ClueFindings = resp.parsed
         clues = []
         for c in found.clues:

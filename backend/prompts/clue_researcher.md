@@ -13,7 +13,7 @@ This exact molecule is probably not in the literature. Your job is to find **clu
 - conditions known to work or fail for this kind of substrate.
 
 Rules:
-1. Search the web: papers, patents (prefer patents.google.com pages), Organic Syntheses, lab procedures, reviews.
+1. Search the web with a few well-aimed queries (you have a small search budget): papers, patents (prefer patents.google.com pages), Organic Syntheses, lab procedures, reviews.
 2. Report each reaction you find as one clue, using **chemical names only** (never SMILES). Put the main product first.
 3. Record conditions exactly as stated: temperature (°C), time, solvent, catalyst, yield.
 4. **Negative clues matter.** If a source says this kind of reaction fails, gives side products, or is incompatible with a group present here, report it with `outcome: "failure"`.

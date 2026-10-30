@@ -80,3 +80,13 @@ def test_oxygen_shortfall_is_only_a_warning():
 def test_no_cycle():
     assert check_no_cycle(["B", "C"], [["A"], ["B"]]).status == "pass"
     assert check_no_cycle(["B", "B"], [["A"], ["B"]]).status == "fail"
+
+
+def test_self_reactive_precursor_is_flagged_and_protection_clears_it():
+    amine_sulfonyl = sp("4-aminobenzenesulfonyl chloride", "Nc1ccc(S(=O)(=O)Cl)cc1")
+    pyrrolidine = sp("3,3-difluoropyrrolidine", "FC1(F)CCNC1")
+    r = critique([amine_sulfonyl, pyrrolidine], sp("p", "Nc1ccc(S(=O)(=O)N2CCC(F)(F)C2)cc1"))
+    assert checks(r)["fg_conflicts"] == "warn" and "self-reactive" in r.summary
+    protected = sp("4-acetamidobenzenesulfonyl chloride", "CC(=O)Nc1ccc(S(=O)(=O)Cl)cc1")
+    r2 = critique([protected, pyrrolidine], sp("p", "CC(=O)Nc1ccc(S(=O)(=O)N2CCC(F)(F)C2)cc1"))
+    assert checks(r2)["fg_conflicts"] == "pass"
