@@ -47,10 +47,40 @@ def build_data(g: KnowledgeGraph, verdict: Verdict, debate: DebateResult | None)
     }
 
 
+def template_report(data: dict) -> str:
+    """Deterministic report from the verified data; used when the LLM is unavailable."""
+    v = data["verdict"]
+    lines = [f"## Verdict", f"**{v['label']}** · confidence {v['confidence']:.0%}", ""]
+    lines += [f"- {r}" for r in v["reasons"]] + ["", "## Proposed route", ""]
+    if data["starting_materials"]:
+        lines += [f"Starting materials: {', '.join(data['starting_materials'])}", ""]
+    for i, s in enumerate(data["steps"], 1):
+        lines.append(f"**Step {i}: {s['reaction']}**  ")
+        lines.append(f"{', '.join(s['transformation']) or 'transformation'} · evidence grade **{s['grade']}**"
+                     + (f" (score {s['precedent_score']:.2f})" if s["precedent_score"] else ""))
+        for j, p in enumerate(s["precedents"], 1):
+            link = f"[{j}]({p['url']})" if p.get("url") else f"[{j}]"
+            lines.append(f"- {link} {p['reaction']} — score {p['score']:.2f}, {p['source']}")
+        lines.append("")
+    if data.get("debate"):
+        lines += ["## Standing objections", ""] + [f"- [{o['severity']}] {o['claim']}"
+                                                   for o in data["debate"]["sustained_objections"]] + [""]
+    ev = data["evidence"]
+    lines += ["## Evidence summary", f"- clues by source: {ev['clues_by_source']}",
+              f"- citation checks: {ev['citation_checks']}", "",
+              "_This report was generated from the verified data without an LLM summary._"]
+    return "\n".join(lines)
+
+
 async def run(ctx: RunContext, g: KnowledgeGraph, verdict: Verdict, debate: DebateResult | None) -> str:
     data = build_data(g, verdict, debate)
-    resp = await ctx.client.respond(
-        prompt("reporter", target_name=data["target"], data=json.dumps(data, indent=1, default=str)), effort="low")
-    md = resp.text.strip()
+    try:
+        resp = await ctx.client.respond(
+            prompt("reporter", target_name=data["target"], data=json.dumps(data, indent=1, default=str)),
+            effort="low")
+        md = resp.text.strip()
+    except Exception as e:  # noqa: BLE001  (budget, outage, content filter: the report must still exist)
+        ctx.log("reporter", f"LLM report unavailable ({type(e).__name__}); using the deterministic template", "warn")
+        md = template_report(data)
     ctx.bus.publish("report", {"markdown": md, "data": data})
     return md

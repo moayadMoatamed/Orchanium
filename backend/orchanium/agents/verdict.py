@@ -66,7 +66,8 @@ def _backed_by_failure(g: KnowledgeGraph, o: Objection) -> bool:
     return False
 
 
-def decide(ctx: RunContext, g: KnowledgeGraph, debate: DebateResult | None) -> Verdict:
+def decide(ctx: RunContext, g: KnowledgeGraph, debate: DebateResult | None,
+           review_note: str | None = None) -> Verdict:
     route, source, reasons = (debate.route if debate else []), "builder", []
     problems = validate_route(g, route)
     if problems:
@@ -111,7 +112,8 @@ def decide(ctx: RunContext, g: KnowledgeGraph, debate: DebateResult | None) -> V
         reasons.append(f"{weak} weakly-supported step(s), {major} standing major objection(s)")
     if label == "Feasible" and debate is None:
         label = "Plausible"
-        reasons.append("capped at Plausible: the route was not reviewed by the Skeptic")
+        reasons.append("capped at Plausible: the route was not reviewed by the Skeptic"
+                       + (f" ({review_note})" if review_note else ""))
 
     scores = [s.precedent_score or 0.1 for s in steps] or [0.0]
     conf = sum(scores) / len(scores) - 0.08 * major - 0.2 * len(fatal_evidenced) - 0.1 * len(gaps)

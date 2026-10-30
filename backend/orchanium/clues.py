@@ -4,6 +4,7 @@
 and the one place precedent links are scored and surfaced."""
 from __future__ import annotations
 
+import re
 from abc import ABC, abstractmethod
 from urllib.parse import urlsplit
 
@@ -50,15 +51,34 @@ async def gather(ctx: RunContext, g: KnowledgeGraph, source: ClueSource, need: R
     return clues
 
 
-def _blind_hit(ctx: RunContext, resolved: list[Resolved], clue: Clue) -> bool:
-    """Blind mode hides every clue that contains or names the target."""
+_PATENT = re.compile(r"(?<![A-Za-z])([A-Z]{2})0*(\d{5,})", re.I)
+
+
+def _source_keys(text: str) -> set[str]:
+    """Comparable identifiers in a source string: patent cores (country + digits,
+    so US08420823B2 == US8420823B2) plus the lower-cased text itself."""
+    return {f"{c.upper()}{d}" for c, d in _PATENT.findall(text or "")} | {(text or "").lower()}
+
+
+def _hidden_hit(ctx: RunContext, resolved: list[Resolved], clue: Clue) -> str | None:
+    """Why a clue must be hidden in blind mode, or None.
+    Blind mode hides clues that contain the target, name it (if it has a real
+    name), or come from an explicitly hidden source (e.g. the held-out patent)."""
     if not ctx.blind or not ctx.target:
-        return False
-    block = ctx.target.inchikey.split("-")[0]
-    if any(r.ok and r.inchikey.split("-")[0] == block for r in resolved):
-        return True
-    text = " ".join(filter(None, [clue.source.snippet, clue.source.title])).lower()
-    return ctx.target.name.lower() in text
+        return None
+    blocks = {k.split("-")[0] for k in [ctx.target.inchikey] + ctx.hidden_molecules}
+    for r in resolved:
+        if r.ok and r.inchikey.split("-")[0] in blocks:
+            return "contains the target" if r.inchikey == ctx.target.inchikey else f"contains hidden molecule {r.name}"
+    text = " ".join(filter(None, [clue.source.snippet, clue.source.title, clue.source.url, clue.source.citation]))
+    if ctx.target.known and ctx.target.name.lower() in text.lower():
+        return "names the target"
+    keys = _source_keys(text)
+    for h in ctx.hidden:
+        hk = _source_keys(h)
+        if hk & keys or any(h.lower() in k for k in keys):
+            return f"from hidden source {h}"
+    return None
 
 
 async def _add_clue_molecule(ctx: RunContext, g: KnowledgeGraph, r: Resolved) -> Molecule:
@@ -80,8 +100,8 @@ async def ingest(ctx: RunContext, g: KnowledgeGraph, clues: list[Clue], query_id
         refs = clue.reactants + clue.products
         res = await resolve_many(refs + clue.reagents)
         main_res, reagent_res = res[:len(refs)], res[len(refs):]
-        if _blind_hit(ctx, main_res, clue):
-            ctx.log(agent_id, f"blind mode: dropped a clue mentioning the target ({clue.source.title[:60]})")
+        if why := _hidden_hit(ctx, main_res, clue):
+            ctx.log(agent_id, f"blind mode: dropped a clue that {why} ({clue.source.title[:60]})")
             continue
         url = clue.source.url or clue.source.citation or clue.id
         sid = short_id("src", url)

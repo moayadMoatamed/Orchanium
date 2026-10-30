@@ -36,10 +36,13 @@ def live_bus(run_id: str) -> EventBus | None:
 
 
 class Orchestrator:
-    def __init__(self, query: str, *, run_id: str | None = None, blind: bool = False, web_budget: int = 4,
+    def __init__(self, query: str, *, run_id: str | None = None, blind: bool = False,
+                 hidden: list[str] | None = None, hidden_molecules: list[str] | None = None,
+                 web_budget: int = 4,
                  debate_rounds: int = 2, debate_research_budget: int = 2, skeptic_model: str | None = None,
                  extra_sink: Callable[[Event], None] | None = None):
-        self.query, self.blind = query, blind
+        self.query, self.blind, self.hidden = query, blind, hidden or []
+        self.hidden_molecules = hidden_molecules or []
         self.web_budget, self.debate_rounds = web_budget, debate_rounds
         self.debate_research_left = debate_research_budget
         self.skeptic_model = skeptic_model
@@ -121,7 +124,8 @@ class Orchestrator:
         bus.publish("run.status", {"status": "running", "target": self.query, "blind": self.blind,
                                    "started_at": time.time()})
         client = MetaClient(self.budget)
-        self.ctx = ctx = RunContext(run_id=self.run_id, bus=bus, client=client, blind=self.blind)
+        self.ctx = ctx = RunContext(run_id=self.run_id, bus=bus, client=client, blind=self.blind,
+                                    hidden=self.hidden, hidden_molecules=self.hidden_molecules)
         g = self.g
         status, v, report, dbt = "failed", None, "", None
         try:
@@ -144,15 +148,21 @@ class Orchestrator:
             await asyncio.gather(*(self._web_research(hid) for hid in self._web_targets()))
 
             self.budget.reserve = 0.1
+            review_note = None if self.debate_rounds > 0 else "debate disabled"
             if self.debate_rounds > 0:
                 async with ctx.agent("debate", "reasoner", "Debate") as h:
-                    dbt = await debate.run(ctx, g, self._debate_research, self._debate_propose,
-                                           rounds=self.debate_rounds, skeptic_model=self.skeptic_model)
+                    try:
+                        dbt = await debate.run(ctx, g, self._debate_research, self._debate_propose,
+                                               rounds=self.debate_rounds, skeptic_model=self.skeptic_model)
+                    except Exception as e:
+                        review_note = ("Meta's content filter declined the debate prompt"
+                                       if "content_policy" in str(e) else f"debate failed: {type(e).__name__}")
+                        raise
                     h["message"] = f"{len(dbt.sustained)} objection(s) stand"
 
             self.budget.reserve = 0.0
             async with ctx.agent("verdict", "critic", "Verdict (rule-based)") as h:
-                v = verdict.decide(ctx, g, dbt)
+                v = verdict.decide(ctx, g, dbt, review_note)
                 h["message"] = f"{v.label} ({v.confidence:.0%})"
             bus.publish("route", RouteEvt(route_id="final", rank=1, steps=v.route, score=v.confidence,
                                           label=v.label, metrics={**g.metrics(

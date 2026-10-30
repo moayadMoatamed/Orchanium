@@ -28,9 +28,10 @@ def _print_event(e: Event) -> None:
         print(f"[{d['agent_id']:>18}] == {d['status'].upper()} {d['message']}", flush=True)
 
 
-async def _run(query: str, blind: bool, web: int, rounds: int) -> None:
+async def _run(query: str, blind: bool, hide: list[str], web: int, rounds: int) -> None:
     from .orchestrator import Orchestrator
-    orch = Orchestrator(query, blind=blind, web_budget=web, debate_rounds=rounds, extra_sink=_print_event)
+    orch = Orchestrator(query, blind=blind or bool(hide), hidden=hide, web_budget=web, debate_rounds=rounds,
+                        extra_sink=_print_event)
     res = await orch.run()
     g, v, s = res["graph"], res["verdict"], res["summary"]
     print("\n" + "=" * 78)
@@ -55,6 +56,7 @@ def main(argv: list[str] | None = None) -> None:
     r = sub.add_parser("run")
     r.add_argument("query")
     r.add_argument("--blind", action="store_true", help="hide clues that contain or name the target")
+    r.add_argument("--hide", action="append", default=[], help="blind mode: also hide this source (patent id or URL)")
     r.add_argument("--web", type=int, default=4, help="web research budget (researchers)")
     r.add_argument("--rounds", type=int, default=2, help="debate rounds (0 = no debate)")
     sub.add_parser("runs")
@@ -63,7 +65,7 @@ def main(argv: list[str] | None = None) -> None:
     ev.add_argument("--kind", default=None)
     a = p.parse_args(argv)
     if a.cmd == "run":
-        asyncio.run(_run(a.query, a.blind, a.web, a.rounds))
+        asyncio.run(_run(a.query, a.blind, a.hide, a.web, a.rounds))
     elif a.cmd == "runs":
         for run in get_store().list_runs():
             print(run["id"], run["status"], run["target"], json.dumps((run["summary"] or {}).get("cost", {})))
