@@ -42,9 +42,9 @@ def test_bhc_route_steps():
     s1 = critique([IBB, AC2O], IBAP, [HF])
     assert s1.verdict == "pass" and any("Friedel-Crafts" in t for t in s1.reaction_classes), s1.summary
     s2 = critique([IBAP], IBPE, [H2])
-    assert s2.verdict == "pass" and any("reduction" in t for t in s2.reaction_classes), s2.summary
+    assert s2.verdict == "pass" and any("reduction" in t.lower() for t in s2.reaction_classes), s2.summary
     s3 = critique([IBPE, CO], IBUPROFEN)
-    assert s3.verdict == "pass" and any("Carbonylation" in t for t in s3.reaction_classes), s3.summary
+    assert s3.verdict == "pass" and any("carbonylation" in t.lower() for t in s3.reaction_classes), s3.summary
 
 
 def test_identical_product_blocks():

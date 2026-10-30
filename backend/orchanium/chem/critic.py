@@ -10,7 +10,7 @@ from rdkit import Chem
 from rdkit.Chem import rdFMCS
 
 from . import rdkit_utils as rd
-from .templates import match_templates
+from .reactions import classify
 
 CheckStatus = Literal["pass", "warn", "fail", "skip"]
 Verdict = Literal["pass", "warn", "block"]
@@ -170,7 +170,7 @@ def check_fg_conflicts(reactants: list[Chem.Mol], reagents: list[Chem.Mol]) -> C
 
 def check_reaction_class(reactants: list[Chem.Mol], reagents: list[Chem.Mol], product: Chem.Mol) -> CheckResult:
     small = [m for m in reagents if m.GetNumHeavyAtoms() <= 12]
-    hits = match_templates(reactants + small, product)
+    hits = classify(reactants + small, product)
     if hits:
         return CheckResult(name="reaction_class", status="pass",
                            reason=f"reproduced by template: {hits[0]}", details={"templates": hits})
