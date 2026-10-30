@@ -17,7 +17,15 @@
 | Web search | `tools: [{"type":"web_search","search_context_size":"high"}]`. Answers carry `url_citation` annotations (`url,title,start_index,end_index`). `include: ["web_search_call.results"]` returns **every source considered**, with `title, url, snippet`. Costs $2.50 / 1k queries. | Great for the Verification Chain: we get the real snippet the model saw. |
 | Vision | `{"type":"input_image","image_url":"https://… or data:image/png;base64,…"}`. Max 50 images per request. | Figure reader sends crops as data URLs. |
 | **SAM 3.1** | **Hosted on the same endpoint**: `model: "sam-3.1"`, a noun-phrase text prompt plus `input_image`. The output is a text grammar `<0f>N<\|box;x1..;y1..;x2..;y2..\|><\|mask;…\|>`, with `metadata.include_confidence`. Costs $2.50 / 1k images. | No Modal or GPU needed. We parse boxes ourselves (we only need boxes for cropping, not masks). |
-| Unknown | Whether `web_search` + `text.format` combine in one call. Whether SAM's "chemical structure" prompt works on line drawings. | These are the first two things the smoke test checks. Fallbacks are in §7. |
+| ✅ Smoke-tested (Oct 30) | **text, structured, vision, web_search, web_search+text.format, SAM all work.** | See findings below. |
+
+**Smoke-test findings (Oct 30):**
+- `web_search` + strict `text.format` **combine in one call**. A tool-using response has several `message` items (status preambles), and the JSON is in the **last** one.
+- `web_search_call` items carry `action.query` (the actual query, which feeds our Query nodes) and `results[] {title,url,snippet}`, but **snippets came back empty**. The Citation checker must fetch pages itself.
+- `url_citation` URLs sometimes have mangled host casing (`https://Www.Mdpi.Com/...`), so normalize hosts.
+- One research call with `search_context_size:"high"` ran 15 searches in 63 s, using about 204k input tokens (139k cached). Cost ≈ $0.17, so use `"medium"` by default.
+- Spark spends most output on reasoning tokens, so use `reasoning.effort:"low"` for simple extraction/normalization calls.
+- **SAM 3.1 returns one instance per concept call** on scheme images. **Iterative find → white-out → re-query** found all 3 molecules in an RDKit reaction image (then returned nothing). `"arrow"` finds the reaction arrow. About 1.5 s per call, with confidence `c` in the box token.
 
 **Budget sanity:** a run is about 5 researchers × (1–3 searches + about 30k tokens) plus about 40 small calls, which comes to roughly **$0.30–0.80 per run** on standard Spark. With every call cached and replay mode, $150 covers 150+ fresh runs.
 
@@ -94,7 +102,7 @@ AND/OR best-first search from the target over the graph. Leaves are purchasable 
 
 1. **Citation checker agent (new, deterministic).** For every evidence record: fetch the URL (cached), check that it resolves, and fuzzy-match the snippet and the reactant/product names against the page text. This adds a `citation` node to the chain (✓ resolves, ✓ quote found). It turns "has a citation" into "the citation demonstrably says this", the strongest anti-hallucination signal we can show judges, and it costs nothing.
 2. **Contributor-mode Spark instead of a 3rd-party open-weights host**: same price class, zero extra infra (needs your OK, see above).
-3. **Two-pass research.** Pass A is Spark + web_search with free-text cited answers and `web_search_call.results`. Pass B is a structured extraction over pass A's text plus snippets (strict JSON schema). This works whether or not tools and `text.format` combine in one call, and it gives clean provenance: query → sources → extracted claim.
+3. **One-pass research (updated after smoke test).** Spark + web_search + a strict JSON schema in **one call** returns evidence records directly, and `web_search_call.action.query` / `results` give the Query and Source nodes. Because snippets are model-written, the deterministic **Citation checker** fetches each page and verifies the snippet and names actually appear there.
 4. **MCS "conserved core" check instead of rxnmapper by default.** rxnmapper drags in torch and old transformers pins (installation is painful on Windows and Docker). It stays an optional extra if time permits.
 5. **Figure round-trip check (vision used twice).** After a crop is read into SMILES, RDKit re-renders it and Spark vision compares the rendering with the original crop ("same molecule?"). The deterministic part is the PubChem/RDKit agreement. The visual check is shown as a separate, clearly labelled signal.
 6. **React Flow + ELK for both the chain and the knowledge graph**: one rendering stack and one token file, so the same node visuals appear everywhere. ELK's layered layout gives a readable retrosynthesis tree with smooth position tweening, where force layouts jitter.
@@ -162,7 +170,7 @@ Orchanium_Ultra/
 
 ## 6. Feasibility notes (telling you early)
 
-- **Figure reader is the riskiest piece.** SAM's text-prompted segmentation is trained on natural images, so "chemical structure" on line art may return poor boxes. Fallback, in order: (a) try several prompts ("molecule drawing", "diagram"); (b) use SAM box/point prompts seeded from a coarse Spark-vision layout pass; (c) use connected-component cropping (OpenCV) + Spark vision, and SAM refines. SAM keeps a real job in every variant, but I'll tell you if it ends up as weak as (c).
+- **Figure reader risk retired (Oct 30).** SAM 3.1 with "chemical structure" + iterative white-out finds every molecule in a scheme. The remaining risk is real-world figure quality (scanned patents), and Spark vision reads plus PubChem cross-checks will flag those.
 - **Literature access**: web_search returns pages, not full PDFs. Most evidence will be snippet-level from Wikipedia, patents, Org. Synth., PMC, and Chemistry LibreTexts. That is honest and enough for the 4 eval targets.
 - **Python**: you have 3.13 locally. RDKit has 3.13 wheels, so local dev uses a venv on 3.13 and Docker uses 3.11 as specified.
 - **rxnmapper**: optional only (see §3.4).

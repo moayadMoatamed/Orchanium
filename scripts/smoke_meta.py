@@ -55,14 +55,16 @@ def _redact(body: dict) -> dict:
     return json.loads(s)
 
 
-def output_text(resp: dict) -> str:
-    parts = []
+def output_text(resp: dict, last_only: bool = True) -> str:
+    """Tool-using responses contain several message items (progress preambles);
+    the final answer / structured JSON is the last one."""
+    msgs = []
     for item in resp.get("output", []):
         if item.get("type") == "message":
-            for c in item.get("content", []):
-                if c.get("type") == "output_text":
-                    parts.append(c.get("text", ""))
-    return "".join(parts)
+            msgs.append("".join(c.get("text", "") for c in item.get("content", []) if c.get("type") == "output_text"))
+    if not msgs:
+        return ""
+    return msgs[-1] if last_only else "".join(msgs)
 
 
 def annotations(resp: dict) -> list[dict]:
