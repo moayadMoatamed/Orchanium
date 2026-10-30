@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     sam_model: str = "sam-3.1"
 
     db_path: Path = DATA / "orchanium.sqlite"
+    fetch_contact_url: str = ""          # put in the citation-checker User-Agent (Wikipedia requires one)
 
     # per-run guardrails
     max_llm_calls: int = 80
