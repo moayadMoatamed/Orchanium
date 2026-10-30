@@ -1,5 +1,7 @@
+import { ChevronUp } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useRun } from "../state/runStore";
+import { readable } from "../textutil";
 import { C } from "../tokens";
 
 /** A quiet live ticker: what each agent is doing right now. Collapsed by
@@ -11,7 +13,9 @@ export function ActivityDock() {
   const running = s.status === "running";
 
   const lines = s.agentOrder
-    .flatMap((id) => (s.agents[id]?.logs ?? []).map((l) => ({ ...l, agent: s.agents[id].label })))
+    .flatMap((id) => (s.agents[id]?.logs ?? []).map((l) => ({
+      ...l, text: readable(l.text, 400), agent: readable(s.agents[id].label, 40),
+    })))
     .sort((a, b) => a.ts - b.ts)
     .slice(-120);
 
@@ -38,7 +42,12 @@ export function ActivityDock() {
           <span className="min-w-0 flex-1 truncate text-[12.5px] text-muted">
             {latest?.text ?? "—"}
           </span>
-          <span className="shrink-0 text-[11px] text-muted">{open ? "hide" : "show"}</span>
+          <ChevronUp
+            size={15}
+            strokeWidth={1.8}
+            className={`shrink-0 text-muted transition-transform ${open ? "rotate-180" : ""}`}
+            aria-label={open ? "Hide activity" : "Show activity"}
+          />
         </button>
         {open && (
           <div className="max-h-[220px] overflow-y-auto border-t border-hairline px-4 py-2.5">

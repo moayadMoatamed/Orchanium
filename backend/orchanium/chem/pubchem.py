@@ -31,6 +31,7 @@ class Resolution(BaseModel):
     tried: list[str] = []
     cached: bool = False
     error: str | None = None
+    unavailable: bool = False            # PubChem did not answer: says nothing about the molecule
 
     @property
     def display_name(self) -> str:
@@ -123,7 +124,7 @@ async def _resolve_uncached(name: str) -> Resolution:
             try:
                 props = await _fetch_props(client, variant)
             except httpx.HTTPError as e:
-                return Resolution(query=name, ok=False, tried=tried, error=f"pubchem error: {e}")
+                return Resolution(query=name, ok=False, tried=tried, error=f"pubchem error: {e}", unavailable=True)
             if not props:
                 continue
             smi = _pick_smiles(props)

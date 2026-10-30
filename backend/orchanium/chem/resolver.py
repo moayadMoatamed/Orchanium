@@ -40,11 +40,18 @@ class Resolved(BaseModel):
     known: bool = False              # has a PubChem record
     error: str | None = None
     tried: list[str] = []
+    # a lookup service did not answer: the failure says nothing about the
+    # molecule, so callers may retry, and must not report it as "not found"
+    unavailable: bool = False
 
 
 def formula_label(smiles: str) -> str:
     m = rd.parse(smiles)
     return rdMolDescriptors.CalcMolFormula(m) if m else smiles
+
+
+class Unavailable(Exception):
+    """A lookup service did not answer."""
 
 
 async def _opsin(name: str) -> str | None:
@@ -55,11 +62,12 @@ async def _opsin(name: str) -> str | None:
     try:
         async with httpx.AsyncClient(timeout=20) as c:
             r = await c.get(OPSIN.format(quote(name)))
-    except httpx.HTTPError:
-        return None
+    except httpx.HTTPError as e:
+        raise Unavailable(f"OPSIN: {type(e).__name__}") from e
+    if r.status_code not in (200, 404):
+        raise Unavailable(f"OPSIN: HTTP {r.status_code}")
     smi = r.json().get("smiles") if r.status_code == 200 else None
-    if r.status_code in (200, 404):
-        store.cache_set("opsin.v1", key, smi or "")
+    store.cache_set("opsin.v1", key, smi or "")
     return smi
 
 
@@ -79,14 +87,24 @@ async def from_name(name: str) -> Resolved:
     if res.ok:
         return Resolved(ok=True, query=name, inchikey=res.inchikey, smiles=res.smiles, name=res.title or name,
                         cid=res.cid, method="pubchem", known=True, tried=res.tried)
-    smi = await _opsin(name)
+    tried = res.tried + ["opsin"]
+    try:
+        smi = await _opsin(name)
+    except Unavailable:
+        smi, opsin_down = None, True
+    else:
+        opsin_down = False
     if smi and (r := await from_smiles(smi, query=name)).ok:
         r.method = "opsin"
         r.name = r.name if r.known else name
-        r.tried = res.tried + ["opsin"]
+        r.tried = tried
         return r
-    return Resolved(ok=False, query=name, error="not found in PubChem; OPSIN could not parse the name",
-                    tried=res.tried + ["opsin"])
+    if res.unavailable or opsin_down:
+        down = " and ".join(s for s, d in (("PubChem", res.unavailable), ("OPSIN", opsin_down)) if d)
+        return Resolved(ok=False, query=name, tried=tried, unavailable=True,
+                        error=f"{down} did not respond, so the name could not be looked up")
+    return Resolved(ok=False, query=name, tried=tried,
+                    error="no compound by this name in PubChem, and it is not a systematic name OPSIN can parse")
 
 
 async def resolve(ref: MolRef, want_name: bool = True) -> Resolved:

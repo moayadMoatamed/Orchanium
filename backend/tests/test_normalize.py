@@ -80,3 +80,27 @@ def test_purchasability():
     assert small.purchasable and small.basis == "heuristic"
     ibu = purchasable.check(rd.inchikey("CC(C)Cc1ccc(C(C)C(=O)O)cc1"), "CC(C)Cc1ccc(C(C)C(=O)O)cc1")
     assert not ibu.purchasable
+
+
+@pytest.mark.parametrize("pubchem_down, opsin_down, unavailable", [
+    (True, False, True),     # service outage: retryable, never "not found"
+    (False, True, True),
+    (False, False, False),   # both answered "no": a genuine miss
+])
+def test_outage_is_not_reported_as_not_found(monkeypatch, pubchem_down, opsin_down, unavailable):
+    from orchanium.chem import resolver
+
+    async def fake_pubchem(name):
+        return pubchem.Resolution(query=name, ok=False, unavailable=pubchem_down,
+                                  error="pubchem error" if pubchem_down else "not found in PubChem")
+
+    async def fake_opsin(name):
+        if opsin_down:
+            raise resolver.Unavailable("OPSIN: timeout")
+        return None
+
+    monkeypatch.setattr(resolver.pubchem, "resolve", fake_pubchem)
+    monkeypatch.setattr(resolver, "_opsin", fake_opsin)
+    r = asyncio.run(resolver.from_name("palmitoyl tripeptide-1"))
+    assert not r.ok and r.unavailable is unavailable
+    assert ("did not respond" in r.error) is unavailable

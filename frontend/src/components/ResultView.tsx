@@ -1,16 +1,27 @@
-import { routeSteps, sourceCount, targetName, useRun } from "../state/runStore";
-import { firstClause, readable } from "../textutil";
-import { GRADE, TONE, VERDICT, type Grade, type VerdictLabel } from "../tokens";
-import { Card, GradeBadge, Label, Mono, Pill } from "./primitives";
+import type { ReactNode } from "react";
+import {
+  ArrowDown, ArrowRight, BookOpen, CircleAlert, Copy, Download, FileCheck2, FlaskConical, Library,
+  Microscope, PackageCheck, RotateCcw, Scale, ShieldCheck, Target, TriangleAlert,
+} from "lucide-react";
+import { failureOf, routeStory, sourceCount, targetName, useRun } from "../state/runStore";
+import { firstClause, firstSentence, plural, readable } from "../textutil";
+import {
+  GRADE, TONE, VERDICT, confidenceWords, reactionPlain, type Grade, type VerdictLabel,
+} from "../tokens";
+import { Card, GradeBadge, MoreText, Section } from "./primitives";
+import { Structure } from "./Structure";
+
+type S = ReturnType<typeof useRun.getState>;
 
 function headline(label: string, steps: number, buyable: boolean) {
-  if (!steps) return "No route could be assembled yet.";
-  const from = buyable ? " from buyable starting materials" : "";
+  if (!steps) return "No route could be assembled.";
+  const n = plural(steps, "step");
+  const from = buyable ? " from chemicals you can buy" : "";
   switch (label) {
     case "Feasible":
-      return `Can be made in ${steps} step${steps === 1 ? "" : "s"}${from}.`;
+      return `Can be made in ${n}${from}.`;
     case "Plausible":
-      return `Probably makeable in ${steps} step${steps === 1 ? "" : "s"}${from}.`;
+      return `Probably makeable in ${n}${from}.`;
     case "Uncertain":
       return `A ${steps}-step route exists, but part of it is unproven.`;
     default:
@@ -18,279 +29,368 @@ function headline(label: string, steps: number, buyable: boolean) {
   }
 }
 
-function conditionsOf(s: ReturnType<typeof useRun.getState>, stepId: string): string {
+function conditionsOf(s: S, stepId: string): string | null {
   const step = s.report?.data.steps.find((x) => x.hypothesis_id === stepId);
   const best = step?.precedents?.find((p) => p.outcome === "success");
-  if (best) {
-    const c = best.conditions ?? {};
-    const pretty = (v: unknown) => String(v).replace(/_/g, " ");
-    const parts = [
-      c.temperature_c != null ? `${c.temperature_c} °C` : null,
-      c.solvent, c.catalyst, c.time,
-    ].filter(Boolean).map(pretty);
-    if (parts.length) return parts.join(", ");
-    if (c.text) return pretty(c.text);
-  }
-  const reagents = s.reactions[stepId]?.classes?.[0];
-  return reagents ? "see precedents" : "—";
+  if (!best) return null;
+  const c = best.conditions ?? {};
+  const pretty = (v: unknown) => String(v).replace(/_/g, " ");
+  const parts = [c.temperature_c != null ? `${c.temperature_c} °C` : null, c.solvent, c.catalyst, c.time]
+    .filter(Boolean).map(pretty);
+  if (parts.length) return parts.join(" · ");
+  return c.text ? pretty(c.text) : null;
 }
 
-export function ResultView() {
+function MoleculeChip({ s, id, tag }: { s: S; id: string; tag: string }) {
+  const m = s.molecules[id];
+  if (!m) return null;
+  return (
+    <button
+      onClick={() => { s.select({ molecule: id, step: null }); s.setTab("graph"); }}
+      className="group flex w-[156px] flex-col items-center rounded-card border border-hairline bg-surface p-2
+                 text-center transition-colors hover:border-ink/25"
+      title="Show in the graph"
+    >
+      <Structure smiles={m.smiles} width={136} height={92} framed={false} />
+      <span className="mt-1 line-clamp-2 text-[12.5px] font-medium leading-snug">{m.name}</span>
+      <span className="text-[11.5px] text-muted">{tag}</span>
+    </button>
+  );
+}
+
+/** Shown when a run stopped without an answer. A stopped run is not a
+ *  finding about the molecule, and the page says so. */
+function Stopped({ s, onRetry }: { s: S; onRetry: (t: string) => void }) {
+  const f = failureOf(s)!;
+  return (
+    <div className="mx-auto max-w-[760px] animate-rise px-6 py-14">
+      <div className="flex items-center gap-2 text-[13px] text-muted">
+        <CircleAlert size={16} strokeWidth={1.8} style={{ color: TONE.warn.fg }} aria-hidden />
+        Run stopped for {s.target}
+      </div>
+      <h1 className="mt-3 text-[30px] font-semibold leading-tight tracking-[-0.02em]">
+        The run stopped before it reached an answer.
+      </h1>
+      <Card className="mt-6 p-5">
+        <div className="text-[14px] leading-relaxed">{readable(f.message, 400)}</div>
+        <div className="mt-3 text-[13px] leading-relaxed text-muted">
+          {f.retryable
+            ? "An outside service didn't respond. That says nothing about your molecule; trying again usually works."
+            : "This is not a verdict on the molecule: nothing was concluded about whether it can be made."}
+        </div>
+      </Card>
+      <button className="btn-primary mt-6" onClick={() => onRetry(s.target)}>
+        <RotateCcw size={15} strokeWidth={2} aria-hidden /> Try again
+      </button>
+    </div>
+  );
+}
+
+function Intro() {
+  const points = [
+    { icon: Microscope, t: "Structures come from databases", d: "Names are looked up in PubChem; the AI never invents a molecule." },
+    { icon: Scale, t: "Verdicts are computed", d: "Two agents argue, but a fixed rule over the evidence decides the label." },
+    { icon: BookOpen, t: "Every claim has a source", d: "Each step links back to the patents and papers behind it." },
+  ];
+  return (
+    <div className="mx-auto max-w-[940px] px-6 py-16">
+      <div className="label">Literature-grounded synthesis planning</div>
+      <h1 className="mt-3 max-w-2xl text-[36px] font-semibold leading-[1.12] tracking-[-0.024em]">
+        Can this molecule be made, and how?
+      </h1>
+      <p className="mt-4 max-w-xl text-[14.5px] leading-relaxed text-muted">
+        Name a molecule, even one that has never been made. Orchanium breaks it into possible steps,
+        finds published reactions that back each step up, checks the chemistry, and has two agents
+        argue over the evidence before it answers.
+      </p>
+      <div className="mt-8 grid max-w-3xl gap-4 sm:grid-cols-3">
+        {points.map(({ icon: Icon, t, d }) => (
+          <Card key={t} className="p-4">
+            <Icon size={18} strokeWidth={1.6} className="text-accent" aria-hidden />
+            <div className="mt-2.5 text-[13.5px] font-medium">{t}</div>
+            <div className="mt-1 text-[12.5px] leading-relaxed text-muted">{d}</div>
+          </Card>
+        ))}
+      </div>
+      <div className="mt-8 text-[12.5px] text-muted">
+        Try <span className="text-ink">ibuprofen</span>, or paste a SMILES for a new compound.
+      </div>
+    </div>
+  );
+}
+
+export function ResultView({ onRetry }: { onRetry: (target: string) => void }) {
   const s = useRun();
-  const steps = routeSteps(s);
+  const { steps, buy, target } = routeStory(s);
   const v = s.verdict;
   const data = s.report?.data;
   const label = (v?.label ?? "Uncertain") as VerdictLabel;
   const meta = VERDICT[label] ?? VERDICT.Uncertain;
-  const tone = meta.tone as keyof typeof TONE;
+  const tone = TONE[meta.tone];
 
-  const buyable = (data?.starting_materials?.length ?? 0) > 0;
-  const totalSources = new Set(
-    Object.values(s.prov).filter((n) => n.node_type === "source").map((n) => n.details?.url ?? n.id),
-  ).size;
+  if (s.status === "idle" && !steps.length) return <Intro />;
+  if (s.status === "failed" && !steps.length) return <Stopped s={s} onRetry={onRetry} />;
 
   if (!steps.length && s.status === "running") {
     return (
       <div className="mx-auto max-w-[940px] px-6 py-12">
-        <Label>Working on {targetName(s)}</Label>
+        <div className="label">Working on {targetName(s)}</div>
         <h1 className="mt-3 max-w-xl text-[30px] font-semibold leading-[1.18] tracking-[-0.02em]">
-          Gathering published evidence for each candidate step…
+          Looking for published evidence behind each possible step…
         </h1>
         <p className="mt-3 max-w-lg text-muted">
-          Orchanium cuts the target into candidate steps, then looks for real reactions that
-          back each one up. The verdict appears when every step has been weighed.
+          The answer appears here once every step has been weighed. The Graph tab shows the
+          route taking shape in the meantime.
         </p>
-      </div>
-    );
-  }
-
-  if (!steps.length && s.status === "idle") {
-    return (
-      <div className="mx-auto max-w-[940px] px-6 py-16">
-        <Label>Literature-grounded retrosynthesis</Label>
-        <h1 className="mt-3 max-w-2xl text-[36px] font-semibold leading-[1.12] tracking-[-0.024em]">
-          Can this molecule be made, and how?
-        </h1>
-        <p className="mt-4 max-w-xl text-[14.5px] leading-relaxed text-muted">
-          Name a molecule — even one that has never been made. Orchanium cuts it into candidate steps
-          with RDKit, finds published reactions that back each step up, checks the chemistry in code,
-          and has two agents argue over the evidence before it answers.
-        </p>
-        <div className="mt-8 grid max-w-3xl gap-4 sm:grid-cols-3">
-          {[
-            ["The model never invents structures", "Names are resolved through PubChem; cuts come from RDKit templates."],
-            ["Verdicts are computed, not voted", "Agents argue, but a fixed rule over the evidence decides the label."],
-            ["Every claim traces to a source", "Each step links back to the patents and papers behind it."],
-          ].map(([t, d]) => (
-            <Card key={t} className="p-4">
-              <div className="text-[13.5px] font-medium">{t}</div>
-              <div className="mt-1.5 text-[12.5px] leading-relaxed text-muted">{d}</div>
-            </Card>
-          ))}
-        </div>
-        <div className="mt-8 text-[12.5px] text-muted">
-          Try <span className="text-ink">ibuprofen</span>, or paste a SMILES for a new compound.
-        </div>
       </div>
     );
   }
 
   if (!steps.length) {
     return (
-      <div className="mx-auto max-w-[940px] px-6 py-12">
-        <Label>Result for {targetName(s)}</Label>
+      <div className="mx-auto max-w-[760px] px-6 py-12">
+        <div className="label">Result for {targetName(s)}</div>
         <h1 className="mt-3 text-[30px] font-semibold leading-tight tracking-[-0.02em]">
-          No route was found.
+          No route back to buyable chemicals was found.
         </h1>
-        <p className="mt-3 max-w-lg text-muted">
-          Nothing in the evidence connects this target back to buyable materials. Try a different
-          target, or allow more research.
+        <p className="mt-3 text-muted">
+          Every possible step was checked, but none led all the way back to chemicals you can
+          buy with published evidence behind it.
+          {v?.gaps?.length ? ` Stuck at: ${v.gaps.map((g) => s.molecules[g]?.name ?? g).join(", ")}.` : ""}
         </p>
       </div>
     );
   }
 
-  return (
-    <div className="mx-auto max-w-[1040px] animate-rise px-6 py-10">
-      <div className="flex flex-wrap items-start justify-between gap-6">
-        <div className="min-w-0 max-w-[620px]">
-          <Label>Result for {targetName(s)}</Label>
-          <h1 className="mt-3 text-[34px] font-semibold leading-[1.14] tracking-[-0.022em]">
-            {headline(label, steps.length, buyable)}
-          </h1>
-          <p className="mt-4 text-[14px] leading-relaxed text-muted">
-            {v?.reasons?.[0] ?? meta.note}
-            {s.blind && (
-              <>
-                {" "}
-                <span className="text-ink">
-                  Blind mode was on: every source mentioning the target was discarded.
-                </span>
-              </>
-            )}
-          </p>
-        </div>
+  const objections = data?.debate?.sustained_objections ?? [];
+  const thin = steps.filter((x) => x.grade === "weak" || x.grade === "none");
+  const sources = new Set(
+    Object.values(s.prov).filter((n) => n.node_type === "source").map((n) => n.details?.url ?? n.id),
+  ).size;
+  const patents = data?.evidence?.clues_by_source?.uspto ?? 0;
+  const checks = data?.evidence?.citation_checks ?? {};
+  const verified = checks.verified ?? checks.pass ?? 0;
 
-        <div className="flex shrink-0 flex-col items-start gap-3">
-          <Pill tone={tone}>{label}</Pill>
-          <div className="text-[12.5px] text-muted">
-            Confidence {v ? v.confidence.toFixed(2) : "—"} · {totalSources} sources cited
-          </div>
-          <div className="flex gap-2">
+  return (
+    <div className="mx-auto max-w-[920px] animate-rise px-6 py-10">
+      {/* ---------------------------------------------------------- answer */}
+      <div className="label">Result for {targetName(s)}</div>
+      <div className="mt-3 grid gap-6 md:grid-cols-[1fr_260px]">
+        <div>
+          <h1 className="text-[34px] font-semibold leading-[1.14] tracking-[-0.022em]">
+            {headline(label, steps.length, buy.length > 0)}
+          </h1>
+          <p className="mt-3 text-[14px] leading-relaxed text-muted">
+            {meta.note}
+            {s.blind && " Blind mode was on: every source that mentions this molecule was hidden, so the route was worked out, not looked up."}
+          </p>
+          <div className="mt-5 flex gap-2">
             <button
-              className="btn-primary"
+              className="btn-secondary"
+              disabled={!s.report}
               onClick={() => {
-                const md = s.report?.markdown ?? "";
-                const blob = new Blob([md], { type: "text/markdown" });
+                const blob = new Blob([s.report?.markdown ?? ""], { type: "text/markdown" });
                 const a = document.createElement("a");
                 a.href = URL.createObjectURL(blob);
                 a.download = `orchanium-${s.targetInfo?.name ?? "route"}.md`;
                 a.click();
               }}
-              disabled={!s.report}
             >
-              Export report
+              <Download size={15} strokeWidth={1.8} aria-hidden /> Export report
             </button>
             <button
               className="btn-secondary"
-              onClick={() =>
-                navigator.clipboard.writeText(
-                  steps.map((x, i) => `${i + 1}. ${x.reaction}  [${x.classes[0] ?? ""}]`).join("\n"),
-                )
-              }
+              onClick={() => navigator.clipboard.writeText(
+                steps.map((x) => `${x.index}. ${x.classes[0] ?? "Step"}: ${x.reaction}`).join("\n"),
+              )}
             >
-              Copy route
+              <Copy size={15} strokeWidth={1.8} aria-hidden /> Copy route
             </button>
           </div>
         </div>
+
+        <Card tone={meta.tone as keyof typeof TONE} className="self-start p-5">
+          <div className="flex items-center gap-2">
+            {meta.tone === "good"
+              ? <ShieldCheck size={20} strokeWidth={1.8} style={{ color: tone.fg }} aria-hidden />
+              : <TriangleAlert size={20} strokeWidth={1.8} style={{ color: tone.fg }} aria-hidden />}
+            <span className="text-[20px] font-semibold" style={{ color: tone.fg }}>{label}</span>
+          </div>
+          {v && (
+            <>
+              <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-hairline">
+                <div className="h-full rounded-full" style={{ width: `${v.confidence * 100}%`, background: tone.fg }} />
+              </div>
+              <div className="mt-1.5 text-[12.5px] text-muted">
+                {confidenceWords(v.confidence)} ({Math.round(v.confidence * 100)}%)
+              </div>
+            </>
+          )}
+          <div className="mt-3 border-t border-hairline pt-3 text-[12.5px] leading-relaxed text-muted">
+            The label comes from a fixed rule over the evidence, not from the AI's opinion.
+          </div>
+        </Card>
       </div>
 
-      {/* step table */}
-      <Card className="mt-9 overflow-hidden">
-        <div className="grid grid-cols-[52px_1fr_190px_210px] gap-4 border-b border-hairline px-5 py-3">
-          <Label>Step</Label>
-          <Label>Reaction</Label>
-          <Label>Conditions</Label>
-          <Label>Evidence</Label>
-        </div>
-        {steps.map((step) => {
-          const g = GRADE[step.grade as Grade] ?? GRADE.none;
-          return (
-            <div
-              key={step.id}
-              className="grid grid-cols-[52px_1fr_190px_210px] items-center gap-4 border-b border-hairline
-                         px-5 py-4 last:border-0 transition-colors hover:bg-ground/60"
-            >
-              <div className="text-[22px] font-semibold tabular-nums">{step.index}</div>
-              <div className="min-w-0">
-                <div className="text-[14px] font-medium">{step.classes[0] ?? "Step"}</div>
-                <div className="mt-0.5 truncate text-[13px] text-muted" title={step.reaction}>
-                  {step.reaction}
-                </div>
-              </div>
-              <Mono>{conditionsOf(s, step.id)}</Mono>
-              <div className="flex items-center justify-between gap-3">
-                <GradeBadge grade={step.grade} sources={sourceCount(s, step.id)} />
-                <button
-                  className="shrink-0 text-[12.5px] underline decoration-hairline underline-offset-4
-                             transition-colors hover:decoration-ink"
-                  onClick={() => {
-                    s.select({ step: step.id });
-                    s.setTab("verification");
-                  }}
-                >
-                  See proof
-                </button>
-              </div>
-              {step.objections.length > 0 && (
-                <button
-                  onClick={() => { s.select({ step: step.id }); s.setTab("debate"); }}
-                  className="col-span-4 -mt-1 pl-[52px] text-left text-[12.5px] hover:underline"
-                  style={{ color: TONE.warn.fg }}
-                >
-                  {step.objections.length} objection{step.objections.length === 1 ? "" : "s"} from the Skeptic
-                  {" — "}{firstClause(step.objections[0].claim)}
-                </button>
-              )}
-              {g.tone === "warn" && !step.objections.length && (
-                <div className="col-span-4 -mt-1 pl-[52px] text-[12.5px] text-muted">{g.blurb}</div>
-              )}
+      {/* ----------------------------------------------------------- route */}
+      <Section
+        className="mt-12"
+        title="How to make it"
+        hint={`${plural(steps.length, "step")}, starting from ${plural(buy.length, "chemical")} you can buy.`}
+      >
+        <div className="relative">
+          {/* start */}
+          <TimelineRow icon={<PackageCheck size={16} strokeWidth={1.8} aria-hidden />} title="Start with">
+            <div className="flex flex-wrap gap-3">
+              {buy.map((id) => <MoleculeChip key={id} s={s} id={id} tag="buy" />)}
             </div>
-          );
-        })}
-      </Card>
+          </TimelineRow>
 
-      <div className="mt-6 grid gap-5 lg:grid-cols-2">
-        <Card className="p-5">
-          <Label className="mb-3">Starting materials to buy</Label>
-          {(data?.starting_materials ?? []).length ? (
-            data!.starting_materials.map((name) => {
-              const mol = Object.values(s.molecules).find((m) => m.name === name);
-              return (
-                <div
-                  key={name}
-                  className="flex items-center justify-between gap-4 border-b border-hairline py-2.5 last:border-0"
-                >
-                  <span className="truncate text-[13.5px]">{name}</span>
-                  <Mono className="shrink-0 truncate text-right">{mol?.smiles ?? ""}</Mono>
-                </div>
-              );
-            })
-          ) : (
-            <div className="text-[13px] text-muted">Not determined yet.</div>
+          {steps.map((step) => {
+            const g = GRADE[step.grade as Grade] ?? GRADE.none;
+            const cond = conditionsOf(s, step.id);
+            const isLast = step.product === target;
+            const newInputs = step.reactants.filter((r) => buy.includes(r) && step.index > 1);
+            return (
+              <TimelineRow
+                key={step.id}
+                icon={<span className="text-[12.5px] font-semibold tabular-nums">{step.index}</span>}
+                title={`Step ${step.index}`}
+              >
+                <Card className="p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-[15px] font-semibold">{step.classes[0] ?? "Chemical step"}</div>
+                      <div className="mt-0.5 text-[13.5px] text-muted">{reactionPlain(step.classes[0])}</div>
+                    </div>
+                    <GradeBadge grade={step.grade} sources={sourceCount(s, step.id)} />
+                  </div>
+
+                  {newInputs.length > 0 && (
+                    <div className="mt-3 text-[13px]">
+                      <span className="text-muted">Add </span>
+                      {newInputs.map((r) => s.molecules[r]?.name ?? r).join(", ")}
+                    </div>
+                  )}
+
+                  <dl className="mt-3 grid gap-x-6 gap-y-2 text-[13px] sm:grid-cols-[110px_1fr]">
+                    <dt className="text-muted">Conditions</dt>
+                    <dd>{cond ?? <span className="text-muted">not reported in the sources</span>}</dd>
+                    <dt className="text-muted">Evidence</dt>
+                    <dd>{g.plain}</dd>
+                  </dl>
+
+                  {step.objections.length > 0 && (
+                    <button
+                      onClick={() => { s.select({ step: step.id }); s.setTab("debate"); }}
+                      className="mt-3 flex w-full items-start gap-2 rounded-chip px-3 py-2 text-left text-[13px]
+                                 transition-colors hover:brightness-95"
+                      style={{ background: TONE.warn.bg, color: TONE.warn.fg }}
+                    >
+                      <TriangleAlert size={15} strokeWidth={1.8} className="mt-[2px] shrink-0" aria-hidden />
+                      <span>Skeptic: {firstClause(step.objections[0].claim, 150)}</span>
+                    </button>
+                  )}
+
+                  <div className="mt-3 flex justify-end">
+                    <button
+                      className="inline-flex items-center gap-1 text-[12.5px] text-muted hover:text-ink"
+                      onClick={() => { s.select({ step: step.id, node: null }); s.setTab("verification"); }}
+                    >
+                      Why we trust this step <ArrowRight size={13} strokeWidth={2} aria-hidden />
+                    </button>
+                  </div>
+                </Card>
+
+                {step.product && (
+                  <div className="mt-3 flex items-center gap-3">
+                    <ArrowDown size={15} strokeWidth={1.8} className="text-muted" aria-hidden />
+                    <MoleculeChip s={s} id={step.product} tag={isLast ? "the target" : "made in this step"} />
+                  </div>
+                )}
+              </TimelineRow>
+            );
+          })}
+
+          <TimelineRow
+            icon={<Target size={16} strokeWidth={1.8} aria-hidden />}
+            title={`Done: ${targetName(s)}`}
+            last
+          />
+        </div>
+      </Section>
+
+      {/* ---------------------------------------------------------- risks */}
+      <Section
+        className="mt-12"
+        title="Before you try it"
+        hint="What the Skeptic could not dismiss, and steps with thin evidence."
+      >
+        <Card className="divide-y divide-hairline">
+          {objections.map((o) => (
+            <div key={o.id} className="flex gap-3 px-4 py-3.5 text-[13.5px] leading-relaxed">
+              <TriangleAlert size={16} strokeWidth={1.8} className="mt-[3px] shrink-0" style={{ color: TONE.warn.fg }} aria-hidden />
+              <span><MoreText short={firstSentence(o.claim)} full={readable(o.claim, 2000)} /></span>
+            </div>
+          ))}
+          {thin.map((x) => (
+            <div key={x.id} className="flex gap-3 px-4 py-3.5 text-[13.5px] leading-relaxed">
+              <FlaskConical size={16} strokeWidth={1.8} className="mt-[3px] shrink-0" style={{ color: TONE.warn.fg }} aria-hidden />
+              <span>
+                Step {x.index} ({x.classes[0] ?? "step"}) has {x.grade === "none" ? "no published precedent" : "only thin precedent"}.
+                Run it at small scale first.
+              </span>
+            </div>
+          ))}
+          {!objections.length && !thin.length && (
+            <div className="flex gap-3 px-4 py-3.5 text-[13.5px] text-muted">
+              <ShieldCheck size={16} strokeWidth={1.8} className="mt-[2px] shrink-0" style={{ color: TONE.good.fg }} aria-hidden />
+              No standing objections. Every step is backed by published work.
+            </div>
           )}
         </Card>
+      </Section>
 
-        <Card className="p-5">
-          <Label className="mb-3">Risks · test first</Label>
-          <ul className="space-y-2.5 text-[13.5px] leading-relaxed">
-            {(data?.debate?.sustained_objections ?? []).map((o) => (
-              <li key={o.id} className="flex gap-2.5">
-                <span className="mt-[7px] h-[5px] w-[5px] shrink-0 rounded-full" style={{ background: TONE.warn.fg }} />
-                <span>{readable(o.claim, 230)}</span>
-              </li>
-            ))}
-            {steps
-              .filter((x) => x.grade === "weak" || x.grade === "none")
-              .map((x) => (
-                <li key={x.id} className="flex gap-2.5">
-                  <span className="mt-[7px] h-[5px] w-[5px] shrink-0 rounded-full" style={{ background: TONE.warn.fg }} />
-                  <span>
-                    Step {x.index} has {x.grade === "none" ? "no published precedent" : "only thin precedent"}. Run it
-                    at small scale first.
-                  </span>
-                </li>
-              ))}
-            {!data?.debate?.sustained_objections?.length &&
-              !steps.some((x) => x.grade === "weak" || x.grade === "none") && (
-                <li className="text-muted">No standing objections. Every step is backed by published work.</li>
-              )}
-          </ul>
-          {v?.gaps?.length ? (
-            <div className="mt-4 border-t border-hairline pt-3 text-[12.5px] text-muted">
-              Unsolved: {v.gaps.map((g) => s.molecules[g]?.name ?? g).join(", ")}
-            </div>
-          ) : null}
-        </Card>
-      </div>
-
-      {data?.evidence && (
-        <div className="mt-6 flex flex-wrap items-center gap-x-6 gap-y-2 text-[12.5px] text-muted">
-          <span>
-            Evidence:{" "}
-            {Object.entries(data.evidence.clues_by_source)
-              .map(([k, n]) => `${n} ${k === "uspto" ? "patent records" : k}`)
-              .join(" · ")}
-          </span>
-          <span>
-            Citation checks:{" "}
-            {Object.entries(data.evidence.citation_checks)
-              .map(([k, n]) => `${n} ${k}`)
-              .join(" · ")}
-          </span>
-          <Mono>${s.cost.usd.toFixed(3)} · {s.cost.searches} searches</Mono>
+      {/* ------------------------------------------------------- based on */}
+      <Section className="mt-12" title="What this is based on">
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Stat icon={Library} value={sources} label="sources read" />
+          <Stat icon={BookOpen} value={patents} label="patent reactions matched" />
+          <Stat icon={FileCheck2} value={verified} label="quotes checked against the source" />
         </div>
-      )}
+        <div className="mt-3 text-[12.5px] text-muted">
+          Run cost ${s.cost.usd.toFixed(2)} · {plural(s.cost.searches, "web search", "web searches")}
+        </div>
+      </Section>
     </div>
+  );
+}
+
+function TimelineRow({
+  icon, title, children, last = false,
+}: { icon: ReactNode; title: string; children?: ReactNode; last?: boolean }) {
+  return (
+    <div className="relative flex gap-4 pb-7">
+      {!last && <div className="absolute left-[15px] top-8 bottom-0 w-px bg-hairline" aria-hidden />}
+      <div className="z-10 grid h-8 w-8 shrink-0 place-items-center rounded-full border border-hairline bg-surface">
+        {icon}
+      </div>
+      <div className="min-w-0 flex-1 pt-1.5">
+        <div className="label mb-2.5">{title}</div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function Stat({ icon: Icon, value, label }: { icon: typeof Library; value: number; label: string }) {
+  return (
+    <Card className="flex items-center gap-3 p-4">
+      <Icon size={18} strokeWidth={1.6} className="text-muted" aria-hidden />
+      <div>
+        <div className="text-[20px] font-semibold tabular-nums leading-none">{value}</div>
+        <div className="mt-1 text-[12.5px] text-muted">{label}</div>
+      </div>
+    </Card>
   );
 }

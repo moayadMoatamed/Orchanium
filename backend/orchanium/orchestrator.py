@@ -131,6 +131,7 @@ class Orchestrator:
                                     similarity_cap=self.similarity_cap)
         g = self.g
         status, v, report, dbt = "failed", None, "", None
+        failure: dict | None = None
         try:
             async with ctx.agent("planner", "planner", "Planner") as h:
                 await planner.run(ctx, self.query)
@@ -175,12 +176,14 @@ class Orchestrator:
             status = "done"
         except Exception as e:  # noqa: BLE001
             ctx.log("orchestrator", f"run failed: {type(e).__name__}: {e}", "error")
+            # a failed run says why, so the UI never mistakes it for "no route exists"
+            failure = {"message": str(e) or type(e).__name__, "retryable": getattr(e, "retryable", False)}
         finally:
             await client.aclose()
             summary = {"target": ctx.target.name if ctx.target else self.query, "blind": self.blind,
                        "verdict": v.label if v else None, "confidence": v.confidence if v else None,
                        "steps": len(v.route) if v else 0, "hypotheses": len(g.hypotheses()),
-                       "clues": len(g.clues), "cost": self.budget.cost.snapshot()}
+                       "clues": len(g.clues), "cost": self.budget.cost.snapshot(), "failure": failure}
             bus.publish("run.status", {"status": status, "target": self.query, "summary": summary})
             store.finish_run(self.run_id, status, summary)
             bus.close()

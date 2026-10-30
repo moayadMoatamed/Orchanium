@@ -101,7 +101,7 @@ async def run(ctx: RunContext, g: KnowledgeGraph,
     def tool_logger(agent: str):
         def log(name: str, args: dict, result) -> None:
             brief = json.dumps(args)[:120]
-            ctx.log(agent, f"🔧 {name}({brief})")
+            ctx.log(agent, f"{name}({brief})")
         return log
 
     def emit(agent: str, turn_no: int, items: list[tuple[str, str | None, str, list[str], str]]):
@@ -112,13 +112,13 @@ async def run(ctx: RunContext, g: KnowledgeGraph,
             parents = [p for p in (_prov_ref(g, i, hyp) for i in ok) if p and p in ctx.prov_nodes]
             ctx.prov(ProvNode(id=f"debate:{agent}:{turn_no}:{key}", node_type="debate", step_id=hyp,
                               agent_id=agent, parent_ids=parents, status=status,
-                              summary=f"{'🔨' if agent == 'builder' else '🔍'} {text[:220]}",
+                              summary=text[:220],
                               details={"agent": agent, "turn": turn_no, "text": text, "cited_ids": ok,
                                        "struck_citations": bad}))
 
     for rnd in range(1, rounds + 1):
         # ---- Builder
-        ctx.agent_status("builder", "reasoner", "🔨 Builder", "running", f"round {rnd}")
+        ctx.agent_status("builder", "reasoner", "Builder", "running", f"round {rnd}")
         b_input = (f"Target: {target.name} (id {target.id}). Round {rnd} of {rounds}.\n"
                    + ("Debate so far:\n" + json.dumps(transcript, indent=1) if transcript else
                       "Start by exploring the graph, then propose your route."))
@@ -130,11 +130,11 @@ async def run(ctx: RunContext, g: KnowledgeGraph,
              + [(f"re-{r.objection_id}", None, ("Concedes: " if r.concede else "Rebuts: ") + r.response,
                  r.cited_ids, "warn" if r.concede else "pass") for r in bt.rebuttals])
         transcript.append({"builder": bt.model_dump()})
-        ctx.agent_status("builder", "reasoner", "🔨 Builder", "done", bt.summary[:160])
+        ctx.agent_status("builder", "reasoner", "Builder", "done", bt.summary[:160])
         ctx.log("builder", bt.summary)
 
         # ---- Skeptic
-        ctx.agent_status("skeptic", "reasoner", "🔍 Skeptic", "running", f"round {rnd}")
+        ctx.agent_status("skeptic", "reasoner", "Skeptic", "running", f"round {rnd}")
         s_input = (f"Target: {target.name} (id {target.id}). Round {rnd} of {rounds}. "
                    + ("This is the final round: keep only objections the evidence sustains.\n" if rnd == rounds else "\n")
                    + "Debate so far:\n" + json.dumps(transcript, indent=1))
@@ -146,7 +146,7 @@ async def run(ctx: RunContext, g: KnowledgeGraph,
                                "fail" if o.severity == "fatal" else "warn" if o.severity == "major" else "skip")
                               for o in st.objections])
         transcript.append({"skeptic": st.model_dump()})
-        ctx.agent_status("skeptic", "reasoner", "🔍 Skeptic", "done", st.summary[:160])
+        ctx.agent_status("skeptic", "reasoner", "Skeptic", "done", st.summary[:160])
         ctx.log("skeptic", st.summary)
 
     final_route = builders[-1].route

@@ -1,119 +1,204 @@
-import { useMemo } from "react";
+import { ChevronDown, ExternalLink, FileText, Globe, SearchCheck } from "lucide-react";
+import { useMemo, useState } from "react";
 import { chainForStep, routeSteps, useRun } from "../state/runStore";
 import type { ProvNode } from "../state/types";
-import { C, GRADE, STATUS_TONE, TONE, type Grade } from "../tokens";
-import { Card, Label, Mono, Pill } from "./primitives";
+import { plural, readable } from "../textutil";
+import { GRADE, reactionPlain, type Grade } from "../tokens";
+import { Card, Empty, GradeBadge, Pill, Section, StatusIcon } from "./primitives";
 
-/** The chain is grouped into the stages a reader actually follows, so one step
- *  reads left to right: what was searched → what was found → was the quote real
- *  → are the structures right → how close is the precedent → does the chemistry
- *  hold → verdict. */
-const STAGES: { key: string; title: string; types: string[] }[] = [
-  { key: "sources", title: "Sources", types: ["query", "source"] },
-  { key: "reported", title: "Reported reaction", types: ["extraction"] },
-  { key: "citation", title: "Citation check", types: ["citation"] },
-  { key: "structures", title: "Structures", types: ["resolution", "vision"] },
-  { key: "precedent", title: "Precedent match", types: ["precedent"] },
-  { key: "checks", title: "Chemistry checks", types: ["check"] },
-];
+type S = ReturnType<typeof useRun.getState>;
+type Status = "pass" | "warn" | "fail" | "skip";
 
-function worst(nodes: ProvNode[]): string {
-  if (nodes.some((n) => n.status === "fail")) return "fail";
-  if (nodes.some((n) => n.status === "warn")) return "warn";
-  if (nodes.some((n) => n.status === "pass")) return "pass";
-  return "skip";
+/** One question a careful reader would ask about a step, answered from the
+ *  provenance nodes recorded for it. */
+interface Check {
+  key: string;
+  question: string;
+  answer: string;
+  status: Status;
+  nodes: ProvNode[];
 }
 
-function stageSummary(key: string, nodes: ProvNode[], s: ReturnType<typeof useRun.getState>) {
-  switch (key) {
-    case "sources": {
-      const srcs = nodes.filter((n) => n.node_type === "source");
-      const kinds = new Map<string, number>();
-      for (const n of srcs) {
-        const raw = n.details?.kind ?? n.details?.source_type ?? "web";
-        const k = raw === "database" ? "patent record" : raw;
-        kinds.set(k, (kinds.get(k) ?? 0) + 1);
-      }
-      return {
-        big: String(srcs.length),
-        sub: [...kinds.entries()].map(([k, n]) => `${n} ${k}${n === 1 ? "" : "s"}`).join(", ") || "none yet",
-      };
-    }
-    case "reported": {
-      const n = nodes[0];
-      const c = n?.details?.conditions ?? {};
-      const parts = [c.temperature_c != null ? `${c.temperature_c} °C` : null, c.solvent, c.catalyst, c.time]
-        .filter(Boolean).join(", ");
-      const fails = nodes.filter((x) => x.details?.outcome === "failure").length;
-      return {
-        big: nodes.length ? `${nodes.length} reaction${nodes.length === 1 ? "" : "s"}` : "—",
-        sub: fails ? `${fails} reported as failures` : parts || "conditions not stated",
-      };
-    }
-    case "citation": {
-      const pass = nodes.filter((n) => n.status === "pass").length;
-      const skip = nodes.filter((n) => n.status === "skip").length;
-      return {
-        big: nodes.length ? `${pass}/${nodes.length - skip || nodes.length} verified` : "—",
-        sub: skip ? `${skip} structured records (no quote to check)` : "quotes matched on the page",
-      };
-    }
-    case "structures": {
-      const ok = nodes.filter((n) => n.status === "pass").length;
-      return { big: ok ? `${ok} confirmed` : "—", sub: "resolved in PubChem, drawn by RDKit" };
-    }
-    case "precedent": {
-      const best = nodes.reduce((a, b) => ((b.details?.score ?? 0) > (a?.details?.score ?? 0) ? b : a), nodes[0]);
-      const sc = best?.details?.score;
-      return {
-        big: sc != null ? sc.toFixed(2) : "—",
-        sub: sc != null
-          ? `product ${Math.round((best.details.product_similarity ?? 0) * 100)}% similar · change ${Math.round(
-              (best.details.transformation_similarity ?? 0) * 100,
-            )}% similar`
-          : "no precedent found",
-      };
-    }
-    case "checks": {
-      const pass = nodes.filter((n) => n.status === "pass").length;
-      const warn = nodes.filter((n) => n.status === "warn");
-      return {
-        big: `${pass} passed`,
-        sub: warn.length ? `${warn.length} note: ${warn[0].details?.check ?? ""}` : "no conflicts found",
-      };
-    }
-    default:
-      return { big: String(nodes.length), sub: "" };
-  }
+const isPatent = (n: ProvNode) => {
+  const k = n.details?.kind ?? n.details?.source_type;
+  return k === "database" || k === "patent";
+};
+
+function checksFor(nodes: ProvNode[]): Check[] {
+  const of = (...types: string[]) => nodes.filter((n) => types.includes(n.node_type));
+  const sources = of("source");
+  const reported = of("extraction");
+  const citations = of("citation");
+  const structures = of("resolution", "vision");
+  const precedents = of("precedent");
+  const checks = of("check");
+
+  const patents = sources.filter(isPatent).length;
+  const web = sources.length - patents;
+  const parts = [patents && plural(patents, "patent"), web && plural(web, "web source")].filter(Boolean);
+
+  const best = precedents.reduce<ProvNode | null>(
+    (a, b) => ((b.details?.score ?? 0) > (a?.details?.score ?? -1) ? b : a), null);
+  const score = best?.details?.score as number | undefined;
+  const alike = Math.round((best?.details?.product_similarity ?? 0) * 100);
+
+  const failures = reported.filter((n) => n.details?.outcome === "failure");
+  const quoted = citations.filter((n) => n.status !== "skip");
+  const quotedOk = quoted.filter((n) => n.status === "pass").length;
+  const checkWarn = checks.filter((n) => n.status === "warn" || n.status === "fail");
+
+  return [
+    {
+      key: "published",
+      question: "Has this reaction been published?",
+      status: sources.length ? "pass" : "warn",
+      answer: sources.length
+        ? `Yes, it appears in ${plural(sources.length, "source")} (${parts.join(", ")}).`
+        : "No published source was found for this step.",
+      nodes: [...sources, ...reported],
+    },
+    {
+      key: "match",
+      question: "How close is the published reaction to ours?",
+      status: score == null ? "warn" : score >= 0.55 ? "pass" : "warn",
+      answer: score == null
+        ? "Nothing close enough to compare."
+        : score >= 0.999
+          ? "It is the same reaction, on the same molecules."
+          : score >= 0.55
+            ? `The same kind of reaction on very similar molecules (the product is ${alike}% alike).`
+            : `Only loosely similar: the closest product is ${alike}% alike.`,
+      nodes: precedents,
+    },
+    {
+      key: "failures",
+      question: "Did anyone report it failing?",
+      status: failures.length ? "warn" : "pass",
+      answer: failures.length
+        ? `${plural(failures.length, "source")} reported a failure under some conditions. The Skeptic weighed these.`
+        : "No failure reports were found.",
+      nodes: failures,
+    },
+    {
+      key: "quotes",
+      question: "Do the sources really say this?",
+      status: !quoted.length ? "skip" : quotedOk === quoted.length ? "pass" : quotedOk ? "warn" : "warn",
+      answer: !quoted.length
+        ? "The evidence is structured patent data, so there was no quote to check."
+        : quotedOk === quoted.length
+          ? `Yes: all ${quoted.length} quoted passages were found on the source page.`
+          : `${quotedOk} of ${quoted.length} quoted passages were confirmed. The rest are on pages that block automated reading, so they could not be checked.`,
+      nodes: citations,
+    },
+    {
+      key: "structures",
+      question: "Are the molecules what we think they are?",
+      status: structures.length ? (structures.every((n) => n.status === "pass") ? "pass" : "warn") : "skip",
+      answer: structures.length
+        ? `${plural(structures.filter((n) => n.status === "pass").length, "structure")} confirmed against PubChem and drawn by RDKit.`
+        : "No structure lookups were recorded for this step.",
+      nodes: structures,
+    },
+    {
+      key: "chemistry",
+      question: "Does the chemistry hold up?",
+      status: checks.some((n) => n.status === "fail") ? "fail" : checkWarn.length ? "warn" : checks.length ? "pass" : "skip",
+      answer: !checks.length
+        ? "No checks were recorded."
+        : checkWarn.length
+          ? `${plural(checks.length - checkWarn.length, "check")} passed; ${checkWarn.length} raised a note: ${readable(checkWarn[0].summary, 140)}`
+          : `All ${plural(checks.length, "check")} passed: no groups that would react with each other, balanced atoms, sensible reagents.`,
+      nodes: checks,
+    },
+  ];
 }
 
-function StageCard({
-  title, index, nodes, summary, onClick, active,
-}: {
-  title: string; index: number; nodes: ProvNode[];
-  summary: { big: string; sub: string }; onClick: () => void; active: boolean;
-}) {
-  const st = worst(nodes);
-  const tone = TONE[STATUS_TONE[st] ?? "neutral"];
-  const empty = !nodes.length;
+function NodeLine({ n }: { n: ProvNode }) {
+  const url = n.details?.url as string | undefined;
   return (
-    <Card
-      onClick={onClick}
-      active={active}
-      className={`w-full px-4 py-3.5 ${empty ? "opacity-45" : ""}`}
-    >
-      <div className="label mb-2 flex items-center gap-1.5">
-        <span className="tabular-nums">{index} ·</span> {title}
-      </div>
-      <div className="flex items-baseline gap-2">
-        <span className="text-[17px] font-semibold leading-tight">{summary.big}</span>
-        {!empty && st !== "pass" && st !== "skip" && (
-          <span style={{ color: tone.fg }} className="text-[13px]">
-            {st === "fail" ? "×" : "!"}
-          </span>
+    <div className="flex items-start gap-2.5 py-2 text-[13px]">
+      <StatusIcon status={n.status} size={14} />
+      <div className="min-w-0 flex-1">
+        <div className="leading-relaxed">{readable(n.details?.title ?? n.summary, 260)}</div>
+        {n.details?.snippet && (
+          <div className="mt-1 border-l-2 border-hairline pl-2.5 text-[12.5px] italic text-muted">
+            “{readable(n.details.snippet, 280)}”
+          </div>
         )}
       </div>
-      <div className="mt-1 text-[12.5px] leading-snug text-muted">{summary.sub}</div>
+      {url && (
+        <a href={url} target="_blank" rel="noreferrer" className="shrink-0 text-muted hover:text-accent" title="Open source">
+          <ExternalLink size={14} strokeWidth={1.8} aria-hidden />
+        </a>
+      )}
+    </div>
+  );
+}
+
+function CheckRow({ c }: { c: Check }) {
+  const [open, setOpen] = useState(false);
+  const canOpen = c.nodes.length > 0;
+  return (
+    <div className="border-b border-hairline last:border-0">
+      <button
+        disabled={!canOpen}
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-start gap-3 px-4 py-4 text-left enabled:hover:bg-ground/50"
+      >
+        <span className="mt-[2px]"><StatusIcon status={c.status} size={18} /></span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[14px] font-medium">{c.question}</span>
+          <span className="mt-0.5 block text-[13.5px] leading-relaxed text-muted">{c.answer}</span>
+        </span>
+        {canOpen && (
+          <ChevronDown
+            size={16}
+            strokeWidth={1.8}
+            className={`mt-1 shrink-0 text-muted transition-transform ${open ? "rotate-180" : ""}`}
+            aria-hidden
+          />
+        )}
+      </button>
+      {open && (
+        <div className="divide-y divide-hairline/70 px-4 pb-3 pl-[46px]">
+          {c.nodes.slice(0, 12).map((n) => <NodeLine key={n.id} n={n} />)}
+          {c.nodes.length > 12 && (
+            <div className="py-2 text-[12.5px] text-muted">and {c.nodes.length - 12} more</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SourceList({ s, nodes }: { s: S; nodes: ProvNode[] }) {
+  const sources = nodes.filter((n) => n.node_type === "source");
+  const citations = nodes.filter((n) => n.node_type === "citation");
+  if (!sources.length) return <div className="text-[13px] text-muted">No sources recorded for this step yet.</div>;
+  return (
+    <Card className="divide-y divide-hairline">
+      {sources.map((n) => {
+        const cite = citations.find((c) => c.details?.url && c.details.url === n.details?.url);
+        const Icon = isPatent(n) ? FileText : Globe;
+        return (
+          <a
+            key={n.id}
+            href={n.details?.url ?? undefined}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-3 px-4 py-3 text-[13.5px] hover:bg-ground/50"
+          >
+            <Icon size={16} strokeWidth={1.6} className="shrink-0 text-muted" aria-hidden />
+            <span className="min-w-0 flex-1 truncate" title={n.details?.title}>
+              {n.details?.title ?? readable(n.summary, 120)}
+            </span>
+            <span className="hidden shrink-0 text-[12px] text-muted sm:inline">
+              {isPatent(n) ? "patent" : "web"}
+            </span>
+            {cite?.status === "pass" && <Pill tone="good">quote confirmed</Pill>}
+          </a>
+        );
+      })}
     </Card>
   );
 }
@@ -123,168 +208,61 @@ export function VerificationView() {
   const steps = routeSteps(s);
   const stepId = s.selectedStep ?? steps[0]?.id ?? null;
   const step = steps.find((x) => x.id === stepId);
-  const { nodes } = useMemo(() => (stepId ? chainForStep(s, stepId) : { nodes: [] as ProvNode[] }), [s, stepId]);
-
-  const stages = useMemo(
-    () => STAGES.map((st) => ({ ...st, nodes: nodes.filter((n) => st.types.includes(n.node_type)) })),
-    [nodes],
-  );
-
-  const detail = s.selectedNode ? s.prov[s.selectedNode] : null;
-  const sources = nodes.filter((n) => n.node_type === "source");
-  const ruledOut = Object.values(s.reactions).filter(
-    (r) => r.kind === "hypothesis" && r.critic === "block" && r.products[0] === s.reactions[stepId ?? ""]?.products[0],
-  );
+  const nodes = useMemo(() => (stepId ? chainForStep(s, stepId).nodes : []), [s, stepId]);
+  const checks = useMemo(() => checksFor(nodes), [nodes]);
 
   if (!stepId || !step) {
     return (
-      <div className="grid h-full place-items-center px-6 text-center">
-        <div className="max-w-sm text-[13.5px] text-muted">
-          The verification chain traces every step back to the evidence behind it. It fills in as the run proceeds.
-        </div>
-      </div>
+      <Empty
+        icon={SearchCheck}
+        title="Why should you trust each step?"
+        hint="Once a route is found, this page answers that for every step: who published it, how close it is, whether the quotes are real, and whether the chemistry holds."
+      />
     );
   }
 
   const g = GRADE[step.grade as Grade] ?? GRADE.none;
-  const verdictNode = s.prov[`verdict:${stepId}`];
+  const passed = checks.filter((c) => c.status === "pass").length;
+  const name = (id: string | null) => (id ? s.molecules[id]?.name ?? id : "");
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="mx-auto max-w-[1080px] animate-rise px-6 py-8">
-        <div className="text-[12.5px] text-muted">
-          Step {step.index} of {steps.length}
-        </div>
-        <h1 className="mt-1.5 text-[30px] font-semibold leading-tight tracking-[-0.02em]">
-          {step.classes[0] ?? "Step"}
-        </h1>
-        <div className="mt-1.5 text-[14px] text-muted">{step.reaction}</div>
-
-        {/* the chain — one continuous line, left to right */}
-        <div className="-mx-6 mt-7 flex items-stretch overflow-x-auto px-6 pb-2">
-          {stages.map((st, i) => (
-            <div key={st.key} className="flex w-[200px] shrink-0 items-stretch">
-              <StageCard
-                index={i + 1}
-                title={st.title}
-                nodes={st.nodes}
-                summary={stageSummary(st.key, st.nodes, s)}
-                active={!!detail && st.nodes.some((n) => n.id === detail.id)}
-                onClick={() => s.select({ node: st.nodes[0]?.id ?? null })}
-              />
-              {i < stages.length - 1 && (
-                <div className="flex w-5 shrink-0 items-center" aria-hidden>
-                  <div className="h-px w-full" style={{ background: C.hairline }} />
-                </div>
-              )}
-            </div>
+    <div className="h-full overflow-y-auto pb-28">
+      <div className="mx-auto max-w-[820px] animate-rise px-6 py-8">
+        <div className="flex flex-wrap gap-1.5">
+          {steps.map((x) => (
+            <button
+              key={x.id}
+              onClick={() => s.select({ step: x.id, node: null })}
+              className={`tab ${x.id === stepId ? "tab-active" : ""}`}
+            >
+              Step {x.index}
+            </button>
           ))}
         </div>
 
-        {/* verdict */}
-        <Card tone={g.tone as keyof typeof TONE} className="mt-5 inline-block min-w-[260px] px-5 py-4">
-          <Label className="mb-1.5">Verdict</Label>
-          <div className="text-[18px] font-semibold" style={{ color: TONE[g.tone as keyof typeof TONE].fg }}>
-            {g.label}
-          </div>
-          <div className="mt-1 text-[12.5px] text-muted">
-            {verdictNode?.summary ?? g.blurb}
-          </div>
-          {step.objections.length > 0 && (
-            <div className="mt-2 text-[12.5px]" style={{ color: TONE.warn.fg }}>
-              {step.objections.length} standing objection{step.objections.length === 1 ? "" : "s"} from the Skeptic
-            </div>
-          )}
+        <h1 className="mt-5 text-[28px] font-semibold leading-tight tracking-[-0.02em]">
+          {step.classes[0] ?? "Chemical step"}
+        </h1>
+        <p className="mt-1 text-[14px] text-muted">{reactionPlain(step.classes[0])}.</p>
+        <p className="mt-3 text-[13.5px] leading-relaxed">
+          {step.reactants.map(name).join(" + ")}
+          <span className="mx-2 text-muted">→</span>
+          <span className="font-medium">{name(step.product)}</span>
+        </p>
+
+        <Card tone={g.tone as "good" | "warn" | "bad"} className="mt-5 flex flex-wrap items-center gap-3 px-4 py-3">
+          <GradeBadge grade={step.grade} />
+          <span className="text-[13.5px]">{g.plain}</span>
+          <span className="ml-auto text-[12.5px] text-muted">{passed} of {checks.length} checks passed</span>
         </Card>
 
-        {/* node detail */}
-        {detail && (
-          <Card className="mt-6 p-5">
-            <div className="mb-2 flex items-center justify-between gap-4">
-              <Label>{detail.node_type} · {detail.agent_id ?? ""}</Label>
-              <button className="text-[12.5px] text-muted hover:text-ink" onClick={() => s.select({ node: null })}>
-                close
-              </button>
-            </div>
-            <div className="text-[14px] leading-relaxed">{detail.summary}</div>
-            {detail.details?.method && (
-              <div className="mt-2 text-[12.5px] text-muted">{detail.details.method}</div>
-            )}
-            {detail.details?.snippet && (
-              <blockquote className="mt-3 border-l-2 border-hairline pl-3 text-[13px] italic text-muted">
-                “{detail.details.snippet}”
-              </blockquote>
-            )}
-            {detail.details?.url && (
-              <a
-                href={detail.details.url}
-                target="_blank"
-                rel="noreferrer"
-                className="mt-3 inline-block text-[12.5px] text-accent underline decoration-accent/30 underline-offset-4"
-              >
-                open source
-              </a>
-            )}
-            <details className="mt-4">
-              <summary className="cursor-pointer text-[12px] text-muted hover:text-ink">raw data</summary>
-              <pre className="mono mt-2 max-h-56 overflow-auto rounded-chip bg-ground p-3 text-[11.5px] leading-relaxed">
-                {JSON.stringify(detail.details, null, 1)}
-              </pre>
-            </details>
-          </Card>
-        )}
+        <Section className="mt-8" title="The checks" hint="Click a check to see the evidence behind it.">
+          <Card>{checks.map((c) => <CheckRow key={c.key} c={c} />)}</Card>
+        </Section>
 
-        {/* sources */}
-        <Label className="mb-3 mt-8">Sources</Label>
-        <div>
-          {sources.length ? (
-            sources.map((n) => {
-              const cite = nodes.find(
-                (c) => c.node_type === "citation" && c.details?.url && c.details.url === n.details?.url,
-              );
-              return (
-                <div
-                  key={n.id}
-                  className="flex items-start gap-4 border-b border-hairline py-3 text-[13.5px] last:border-0"
-                >
-                  <span className="w-[96px] shrink-0 text-muted">
-                    {n.details?.kind === "database" ? "patent record" : (n.details?.kind ?? "web")}
-                  </span>
-                  <a
-                    href={n.details?.url ?? undefined}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="min-w-0 flex-1 truncate hover:text-accent"
-                    title={n.details?.title}
-                  >
-                    {n.details?.title ?? n.summary}
-                  </a>
-                  {cite && (
-                    <Pill tone={STATUS_TONE[cite.status] as keyof typeof TONE} title={cite.summary}>
-                      {cite.status === "pass" ? "quote verified" : cite.status === "skip" ? "record" : "unverified"}
-                    </Pill>
-                  )}
-                </div>
-              );
-            })
-          ) : (
-            <div className="text-[13px] text-muted">No sources recorded for this step yet.</div>
-          )}
-        </div>
-
-        {ruledOut.length > 0 && (
-          <div className="mt-6 flex items-start gap-2.5 text-[12.5px] text-muted">
-            <span className="mt-[6px] h-[5px] w-[5px] shrink-0 rounded-full" style={{ background: C.rejected }} />
-            <span>
-              Ruled out for the same product:{" "}
-              {ruledOut.map((r) => r.classes[0] ?? "alternative").join(", ")} — failed a chemistry check.
-            </span>
-          </div>
-        )}
-
-        <Mono className="mt-8 block">
-          {nodes.length} provenance nodes recorded for this step
-        </Mono>
+        <Section className="mt-10" title="Sources">
+          <SourceList s={s} nodes={nodes} />
+        </Section>
       </div>
     </div>
   );

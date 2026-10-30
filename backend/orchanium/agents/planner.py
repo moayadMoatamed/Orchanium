@@ -2,6 +2,8 @@
 a verified target structure via the Resolver, and inspects it with RDKit."""
 from __future__ import annotations
 
+import asyncio
+
 from ..chem import rdkit_utils as rd
 from ..chem.pubchem import vendor_count
 from ..chem.purchasable import MIN_VENDORS
@@ -11,14 +13,28 @@ from ..events import ProvNode
 from ..models import TargetInfo
 
 AGENT_ID = "planner"
+RETRY_AFTER_S = 8.0
+
+
+class TargetUnresolved(Exception):
+    def __init__(self, message: str, retryable: bool):
+        super().__init__(message)
+        self.retryable = retryable          # the run can simply be tried again
 
 
 async def run(ctx: RunContext, query: str) -> TargetInfo:
     q = query.strip()
     looks_like_smiles = " " not in q and rd.parse(q) is not None and any(ch in q for ch in "=()[]#@1234")
-    res = await resolve(MolRef(smiles=q) if looks_like_smiles else MolRef(name=q))
+    ref = MolRef(smiles=q) if looks_like_smiles else MolRef(name=q)
+    res = await resolve(ref)
+    if res.unavailable:
+        # everything downstream depends on the target, so it earns one more
+        # patient attempt before the run gives up
+        ctx.log(AGENT_ID, f"{res.error}; trying once more", level="warn")
+        await asyncio.sleep(RETRY_AFTER_S)
+        res = await resolve(ref)
     if not res.ok:
-        raise ValueError(f"could not resolve the target '{q}': {res.error}")
+        raise TargetUnresolved(f"Could not identify '{q}': {res.error}.", retryable=res.unavailable)
     target = TargetInfo(query=q, name=res.name if res.known or not looks_like_smiles else "Target",
                         smiles=res.smiles, inchikey=res.inchikey, cid=res.cid, known=res.known,
                         description=rd.describe(res.smiles))
