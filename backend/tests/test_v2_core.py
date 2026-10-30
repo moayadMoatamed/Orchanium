@@ -178,3 +178,14 @@ def test_strict_mode_hides_near_identical_evidence():
     assert tanimoto(near, PARACETAMOL) > 0.5 > tanimoto(far, PARACETAMOL)
     assert "strict" in _hidden_hit(ctx, [r(near)], clue)
     assert _hidden_hit(ctx, [r(far)], clue) is None
+
+
+def test_advanced_intermediates_are_not_treated_as_buyable():
+    from orchanium.chem import purchasable as P
+    # 1-(4-isobutylphenyl)ethanol (13 heavy atoms) is sold, but it is most of
+    # ibuprofen (15 heavy atoms): buying it would answer the wrong question.
+    ethanol_intermediate = "CC(C)Cc1ccc(C(C)O)cc1"
+    assert P.check(None, ethanol_intermediate, vendors=20).purchasable        # no target context
+    assert not P.check(None, ethanol_intermediate, vendors=20, target_atoms=15).purchasable
+    # a genuine building block stays buyable against the same target
+    assert P.check(None, "CC(=O)Cl", vendors=20, target_atoms=15).purchasable

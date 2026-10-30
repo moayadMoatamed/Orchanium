@@ -133,7 +133,8 @@ def _hidden_hit(ctx: RunContext, resolved: list[Resolved], clue: Clue,
 async def _add_clue_molecule(ctx: RunContext, g: KnowledgeGraph, r: Resolved) -> Molecule:
     m = g.molecules.get(r.inchikey)
     if m is None:
-        p = await purchasable.assess(r.inchikey, r.smiles, r.cid)
+        p = await purchasable.assess(r.inchikey, r.smiles, r.cid,
+                                     (ctx.target.description or {}).get("heavy_atoms") if ctx.target else None)
         m = Molecule(id=r.inchikey, smiles=r.smiles, name=r.name or r.query, known=r.known, cid=r.cid,
                      purchasable=p.purchasable and r.inchikey != g.target_id,
                      purchasable_basis=p.basis, purchasable_reason=p.reason)
@@ -157,19 +158,26 @@ async def ingest(ctx: RunContext, g: KnowledgeGraph, clues: list[Clue], query_id
             continue
         url = clue.source.url or clue.source.citation or clue.id
         sid = short_id("src", url)
+        # step_id ties every node to the hypothesis it was gathered for, so the
+        # Verification chain for a step can be built from the event stream alone
+        step = clue.need_id
         ctx.prov(ProvNode(id=sid, node_type="source", agent_id=agent_id, parent_ids=[query_id], status="pass",
+                          step_id=step,
                           summary=f"{clue.source.title[:90]}" + (f" ({urlsplit(url).netloc})" if clue.source.url else ""),
                           details=clue.source.model_dump()))
         cid = f"clue:{clue.id}"
         names = [r.label for r in clue.reactants]
-        ctx.prov(ProvNode(id=cid, node_type="extraction", agent_id=agent_id, parent_ids=[sid],
+        ctx.prov(ProvNode(id=cid, node_type="extraction", agent_id=agent_id, parent_ids=[sid], step_id=step,
                           status="pass" if clue.outcome == "success" else "warn",
                           summary=f"{' + '.join(names)} → {clue.products[0].label}"
                                   + (" (reported FAILURE)" if clue.outcome == "failure" else ""),
                           details=clue.model_dump()))
         for ref, r in zip(refs, main_res):
+            # a resolution is a fact about a molecule, not about one step, so it
+            # carries no step_id; the chain looks it up by molecule id
             ctx.prov(ProvNode(id=f"res:{r.inchikey or 'x:' + ref.label}", node_type="resolution",
-                              agent_id="resolver", parent_ids=[cid], status="pass" if r.ok else "fail",
+                              agent_id="resolver", parent_ids=[cid],
+                              status="pass" if r.ok else "fail",
                               summary=(f"{ref.label} → {r.name} ({r.method}{', CID ' + str(r.cid) if r.cid else ''})"
                                        if r.ok else f"“{ref.label}” could not be resolved"),
                               details=r.model_dump()))

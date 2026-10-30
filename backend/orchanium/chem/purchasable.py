@@ -24,6 +24,12 @@ _ALLOWED_HEURISTIC = {"C", "H", "N", "O", "S", "F", "Cl", "Br", "I", "B", "P", "
 
 MIN_VENDORS = 5
 MAX_BUILDING_BLOCK_ATOMS = 18
+# A molecule that is almost as elaborate as the target is an advanced
+# intermediate, not a starting material: treating it as "buyable" would answer
+# "make X by buying something that is nearly X". Vendor listings therefore only
+# count for molecules well simpler than the target.
+MAX_FRACTION_OF_TARGET = 0.6
+MIN_TARGET_FRACTION_ATOMS = 8
 
 
 class Purchasability(BaseModel):
@@ -38,7 +44,8 @@ def catalog() -> dict[str, dict]:
     return yaml.safe_load(_DATA.read_text(encoding="utf-8")) or {}
 
 
-def check(inchikey: str | None, smiles: str | None, vendors: int = 0) -> Purchasability:
+def check(inchikey: str | None, smiles: str | None, vendors: int = 0,
+          target_atoms: int | None = None) -> Purchasability:
     cat = catalog()
     if inchikey and inchikey in cat:
         e = cat[inchikey]
@@ -56,8 +63,15 @@ def check(inchikey: str | None, smiles: str | None, vendors: int = 0) -> Purchas
         return Purchasability(purchasable=False, basis="none", reason="structure unknown")
     heavy = m.GetNumHeavyAtoms()
     if vendors >= MIN_VENDORS and heavy <= MAX_BUILDING_BLOCK_ATOMS:
-        return Purchasability(purchasable=True, basis="vendors",
-                              reason=f"listed by {vendors} chemical vendors in PubChem (building-block sized)")
+        budget = (max(MIN_TARGET_FRACTION_ATOMS, int(target_atoms * MAX_FRACTION_OF_TARGET))
+                  if target_atoms else MAX_BUILDING_BLOCK_ATOMS)
+        if heavy <= budget:
+            return Purchasability(purchasable=True, basis="vendors",
+                                  reason=f"listed by {vendors} chemical vendors in PubChem (building-block sized)")
+        return Purchasability(
+            purchasable=False, basis="none",
+            reason=f"sold by {vendors} vendors, but at {heavy} heavy atoms it is an advanced intermediate "
+                   f"(over {budget} for this target), so a route to it is still worth showing")
     stereo = Chem.FindMolChiralCenters(m, includeUnassigned=True, useLegacyImplementation=False)
     elements = {a.GetSymbol() for a in m.GetAtoms()}
     rings = m.GetRingInfo().NumRings()
@@ -70,9 +84,10 @@ def check(inchikey: str | None, smiles: str | None, vendors: int = 0) -> Purchas
                                  f"{len(stereo)} stereocentres, {rings} rings)")
 
 
-async def assess(inchikey: str | None, smiles: str | None, cid: int | None) -> Purchasability:
+async def assess(inchikey: str | None, smiles: str | None, cid: int | None,
+                 target_atoms: int | None = None) -> Purchasability:
     """`check` plus the PubChem vendor signal when the compound has a CID."""
-    quick = check(inchikey, smiles)
+    quick = check(inchikey, smiles, target_atoms=target_atoms)
     if quick.basis == "catalog" or not cid:
         return quick
-    return check(inchikey, smiles, await vendor_count(cid))
+    return check(inchikey, smiles, await vendor_count(cid), target_atoms=target_atoms)
