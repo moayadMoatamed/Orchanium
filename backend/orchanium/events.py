@@ -9,7 +9,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 NodeType = Literal[
-    "query", "source", "extraction", "vision", "resolution",
+    "query", "source", "extraction", "vision", "resolution", "hypothesis", "precedent", "debate",
     "check", "citation", "agreement", "verdict",
 ]
 Status = Literal["pending", "running", "pass", "warn", "fail", "skip"]   # skip = informational / not applicable

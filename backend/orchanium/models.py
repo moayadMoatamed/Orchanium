@@ -1,26 +1,86 @@
-"""Pydantic models for agent I/O. Classes used as LLM structured-output schemas
-are marked; their fields must stay within the Meta strict-schema subset."""
+"""Shared data shapes. Classes marked `LLM schema` are sent to Muse Spark as
+strict structured-output schemas, so they stay within the strict subset."""
 from __future__ import annotations
 
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
-SourceType = Literal["patent", "paper", "procedure", "textbook", "encyclopedia", "web"]
+from .chem.resolver import MolRef
+
+SourceKind = Literal["patent", "paper", "procedure", "textbook", "encyclopedia", "web", "database"]
 
 
-# ---------------------------------------------------------------- planner
+# ---------------------------------------------------------------- clues (any source)
 
-class ResearchAngle(BaseModel):          # LLM schema
-    title: str = Field(description="Short label, e.g. 'Industrial process routes'")
-    focus: str = Field(description="What this researcher should look for")
-    query_hint: str = Field(description="A good first web search query")
+class Conditions(BaseModel):
+    temperature_c: float | None = None
+    time: str | None = None
+    solvent: str | None = None
+    catalyst: str | None = None
+    text: str | None = None
 
 
-class ResearchPlan(BaseModel):           # LLM schema
-    angles: list[ResearchAngle]
-    rationale: str
+class SourceRef(BaseModel):
+    kind: SourceKind
+    title: str
+    url: str | None = None
+    snippet: str | None = None           # verbatim text from the source, if any
+    citation: str | None = None          # e.g. patent number, DOI
 
+
+class Clue(BaseModel):
+    """One observed reaction from any source. Every ClueSource emits this shape."""
+    id: str
+    origin: str                          # name of the ClueSource
+    need_id: str | None = None           # hypothesis this clue was gathered for
+    reactants: list[MolRef]
+    products: list[MolRef]               # main product first
+    reagents: list[MolRef] = Field(default_factory=list)
+    conditions: Conditions = Field(default_factory=Conditions)
+    yield_pct: float | None = None
+    outcome: Literal["success", "failure"] = "success"
+    source: SourceRef
+
+
+class ResearchNeed(BaseModel):
+    """What to look for: reactions like `hypothesis` (product from reactants)."""
+    id: str                              # hypothesis reaction id
+    product_smiles: str
+    product_name: str
+    reactant_smiles: list[str]
+    reactant_names: list[str]
+    reaction_class: str | None
+    analog_names: list[str] = Field(default_factory=list)   # known molecules similar to the product
+    focus: str | None = None                                # a specific question to investigate
+
+
+# ---------------------------------------------------------------- web researcher (LLM schema)
+
+class ClueLLM(BaseModel):
+    reactants: list[str] = Field(description="Chemical NAMES of reactants (never SMILES)")
+    products: list[str] = Field(description="Chemical NAMES of products, main product first")
+    reagents: list[str] = Field(description="Names of reagents, catalysts and solvents")
+    temperature_c: float | None = Field(description="Reaction temperature in °C if stated")
+    time: str | None = Field(description="Reaction time if stated, e.g. '4 h'")
+    solvent: str | None
+    catalyst: str | None
+    conditions_text: str | None = Field(description="Other conditions as stated")
+    yield_pct: float | None = Field(description="Reported yield in percent if stated")
+    outcome: Literal["success", "failure"] = Field(
+        description="'failure' if the source reports the reaction did not work or gave the wrong product")
+    snippet: str = Field(description="Short sentence copied verbatim from the source stating this reaction")
+    source_url: str = Field(description="Exact URL of the page from your search results")
+    source_title: str
+    source_type: Literal["patent", "paper", "procedure", "textbook", "encyclopedia", "web"]
+
+
+class ClueFindings(BaseModel):
+    clues: list[ClueLLM]
+    notes: str
+
+
+# ---------------------------------------------------------------- target
 
 class TargetInfo(BaseModel):
     query: str
@@ -28,59 +88,5 @@ class TargetInfo(BaseModel):
     smiles: str
     inchikey: str
     cid: int | None = None
+    known: bool = False                  # has a PubChem record
     description: dict = Field(default_factory=dict)
-
-
-# ---------------------------------------------------------------- researcher
-
-class EvidenceStepLLM(BaseModel):        # LLM schema
-    reactants: list[str] = Field(description="Chemical NAMES of the reactants (never SMILES)")
-    products: list[str] = Field(description="Chemical NAMES of products; main product first")
-    reagents: list[str] = Field(description="Names of reagents, catalysts and solvents")
-    conditions: str | None = Field(description="Temperature, time, atmosphere etc., if stated")
-    yield_pct: float | None = Field(description="Reported yield in percent, if stated")
-    snippet: str = Field(description="Short verbatim sentence from the source describing this step (<= 300 chars)")
-    source_url: str = Field(description="URL of the source page this step came from (from your search results)")
-    source_title: str
-    source_type: SourceType
-    route_name: str | None = Field(description="Name of the overall route, e.g. 'BHC process', if any")
-    step_number: int | None = Field(description="Position of this step within its route, if known")
-    figure_image_urls: list[str] = Field(description="Direct URLs of reaction-scheme images on the source page, if seen")
-
-
-class ResearchFindings(BaseModel):       # LLM schema
-    steps: list[EvidenceStepLLM]
-    intermediates_to_research: list[str] = Field(
-        description="Names of intermediates whose own synthesis is not covered yet")
-    notes: str
-
-
-class Evidence(EvidenceStepLLM):
-    id: str
-    agent_id: str
-    angle: str
-    query_node_id: str
-    source_node_id: str
-    url_in_search_results: bool = False
-
-
-# ---------------------------------------------------------------- reasoner / report
-
-class RouteStep(BaseModel):
-    reaction_id: str
-    product: str
-    reactants: list[str]
-    label: Literal["literature", "proposed", "rejected"]
-    critic: str
-    evidence_ids: list[str]
-
-
-class Route(BaseModel):
-    route_id: str
-    rank: int
-    steps: list[RouteStep]                # starting materials -> target
-    score: float
-    complete: bool
-    leaves: list[str]
-    gaps: list[str] = Field(default_factory=list)
-    metrics: dict = Field(default_factory=dict)

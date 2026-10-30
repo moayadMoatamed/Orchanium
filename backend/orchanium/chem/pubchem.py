@@ -177,7 +177,7 @@ async def lookup_inchikey(key: str) -> dict | None:
         return hit or None
     await _limiter.wait()
     async with httpx.AsyncClient() as client:
-        r = await client.get(f"{PUG}/compound/inchikey/{key}/property/Title,IUPACName,CID/JSON", timeout=20)
+        r = await client.get(f"{PUG}/compound/inchikey/{key}/property/Title,IUPACName/JSON", timeout=20)
     rows = r.json().get("PropertyTable", {}).get("Properties", []) if r.status_code == 200 else []
     val = rows[0] if rows else {}
     if r.status_code in (200, 404):

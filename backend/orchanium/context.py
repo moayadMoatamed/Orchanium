@@ -32,6 +32,7 @@ class RunContext:
     bus: EventBus
     client: MetaClient
     target: Any = None                               # TargetInfo once planned
+    blind: bool = False                              # hide clues that contain/name the target
     prov_nodes: dict[str, ProvNode] = field(default_factory=dict)
 
     def prov(self, node: ProvNode) -> ProvNode:

@@ -12,7 +12,7 @@ import asyncio
 import copy
 import json
 import time
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx
@@ -182,6 +182,15 @@ def _parse_output(data: dict) -> tuple[str, list[dict], list[SearchCall]]:
 
 # ------------------------------------------------------------------ client
 
+class Tool(BaseModel):
+    """A function the model may call: pydantic params in, JSON-able result out."""
+    model_config = {"arbitrary_types_allowed": True}
+    name: str
+    description: str
+    params: type[BaseModel]
+    fn: Callable[[Any], Awaitable[Any]]
+
+
 class MetaClient:
     def __init__(self, budget: Budget | None = None):
         if not settings.meta_api_key:
@@ -267,6 +276,66 @@ class MetaClient:
             except Exception as e:  # noqa: BLE001
                 raise MetaAPIError(f"structured output did not validate: {e}; text={resp.text[:300]!r}") from e
         return resp
+
+    # -------- agent loop with function tools
+    async def run_tools(
+        self,
+        input: list,
+        tools: list["Tool"],
+        *,
+        instructions: str | None = None,
+        schema: type[BaseModel] | None = None,
+        effort: str = "low",
+        model: str | None = None,
+        max_turns: int = 12,
+        on_call: Callable[[str, dict, Any], None] | None = None,
+    ) -> MetaResponse:
+        """Runs the model with function tools until it answers without calling one.
+        The conversation is replayed statelessly each turn (verified Oct 30)."""
+        model = model or settings.meta_model
+        by_name = {t.name: t for t in tools}
+        specs = [{"type": "function", "name": t.name, "description": t.description,
+                  "parameters": strict_schema(t.params), "strict": True} for t in tools]
+        convo = list(input)
+        for _ in range(max_turns):
+            body: dict[str, Any] = {"model": model, "input": convo, "tools": specs, "reasoning": {"effort": effort}}
+            if instructions:
+                body["instructions"] = instructions
+            if schema is not None:
+                body["text"] = {"format": {"type": "json_schema", "name": schema.__name__,
+                                           "schema": strict_schema(schema), "strict": True}}
+            key = hash_key(body)
+            store = get_store()
+            if (hit := store.cache_get(CACHE_NS + ".raw", key)) is not None:
+                data = hit
+                self.budget.add_cached()
+            else:
+                self.budget.check("llm")
+                data = await self._post(body)
+                self.budget.add_llm(model, data.get("usage") or {}, 0)
+                store.cache_set(CACHE_NS + ".raw", key, data)
+            out = data.get("output", [])
+            calls = [o for o in out if o.get("type") == "function_call"]
+            if not calls:
+                text, anns, searches = _parse_output(data)
+                return self._attach_parsed(MetaResponse(id=data.get("id"), model=model, text=text,
+                                                        annotations=anns, usage=data.get("usage") or {}), schema)
+            convo += out
+            for c in calls:
+                tool = by_name.get(c["name"])
+                try:
+                    # models sometimes write the string "null"/"None" for a null argument
+                    raw = {k: (None if isinstance(v, str) and v.strip().lower() in ("null", "none", "") else v)
+                           for k, v in json.loads(c.get("arguments") or "{}").items()}
+                    args = tool.params.model_validate(raw) if tool else None
+                    result = await tool.fn(args) if tool else {"error": f"unknown tool {c['name']}"}
+                except Exception as e:  # noqa: BLE001
+                    result = {"error": f"{type(e).__name__}: {e}"}
+                if on_call:
+                    on_call(c["name"], json.loads(c.get("arguments") or "{}"), result)
+                convo.append({"type": "function_call_output", "call_id": c["call_id"],
+                              "output": json.dumps(result, default=str)[:20000]})
+        raise MetaAPIError(f"agent did not finish within {max_turns} tool turns")
 
     # -------- raw call used by SAM (different output grammar, image billing)
     async def raw(self, body: dict) -> dict:

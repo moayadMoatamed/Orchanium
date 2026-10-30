@@ -1,6 +1,6 @@
 """Command line entry point.
 
-    python -m orchanium.cli run "aspirin" [--angles 3]
+    python -m orchanium.cli run "paracetamol" [--blind] [--web 4] [--rounds 2]
     python -m orchanium.cli runs
     python -m orchanium.cli events RUN_ID [--kind prov.node]
 """
@@ -28,24 +28,21 @@ def _print_event(e: Event) -> None:
         print(f"[{d['agent_id']:>18}] == {d['status'].upper()} {d['message']}", flush=True)
 
 
-async def _run(query: str, angles: int | None) -> None:
+async def _run(query: str, blind: bool, web: int, rounds: int) -> None:
     from .orchestrator import Orchestrator
-    orch = Orchestrator(query, n_angles=angles, extra_sink=_print_event)
+    orch = Orchestrator(query, blind=blind, web_budget=web, debate_rounds=rounds, extra_sink=_print_event)
     res = await orch.run()
-    g = res["graph"]
+    g, v, s = res["graph"], res["verdict"], res["summary"]
     print("\n" + "=" * 78)
-    print(f"run {res['run_id']}: {res['status']}  cost=${res['summary']['cost']['usd']:.3f}  "
-          f"llm_calls={res['summary']['cost']['llm_calls']} searches={res['summary']['cost']['searches']}")
-    for r in res["routes"]:
-        print(f"\nRoute {r.rank} (score {r.score}, {'complete' if r.complete else 'partial'}) "
-              f"metrics={json.dumps(r.metrics)}")
-        for i, s in enumerate(r.steps, 1):
-            rx = g.reactions[s.reaction_id]
-            print(f"  {i}. {' + '.join(g.molecules[x].name for x in rx.reactants)} → {g.molecules[rx.product].name}"
-                  f"   [{rx.label}, conf {rx.confidence}, critic {rx.critic.verdict if rx.critic else '-'}, "
-                  f"{len(rx.evidence)} evidence]")
-        if r.gaps:
-            print("  gaps:", ", ".join(g.molecules[m].name for m in r.gaps))
+    print(f"run {res['run_id']}: {res['status']}  blind={blind}  cost=${s['cost']['usd']:.3f}  "
+          f"llm_calls={s['cost']['llm_calls']} searches={s['cost']['searches']}  clues={s['clues']}")
+    if v:
+        print(f"\nVERDICT: {v.label}  (confidence {v.confidence:.0%}, route from {v.route_source})")
+        for r in v.reasons:
+            print(f"  - {r}")
+        for i, st in enumerate(v.steps, 1):
+            print(f"  {i}. {st.reaction}\n     grade={st.grade} score={st.precedent_score} "
+                  f"failures={st.failure_precedents} objections={[o.severity for o in st.objections]}")
     out = DATA / "runs" / res["run_id"]
     out.mkdir(parents=True, exist_ok=True)
     (out / "report.md").write_text(res["report"] or "", encoding="utf-8")
@@ -57,14 +54,16 @@ def main(argv: list[str] | None = None) -> None:
     sub = p.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("run")
     r.add_argument("query")
-    r.add_argument("--angles", type=int, default=None)
+    r.add_argument("--blind", action="store_true", help="hide clues that contain or name the target")
+    r.add_argument("--web", type=int, default=4, help="web research budget (researchers)")
+    r.add_argument("--rounds", type=int, default=2, help="debate rounds (0 = no debate)")
     sub.add_parser("runs")
     ev = sub.add_parser("events")
     ev.add_argument("run_id")
     ev.add_argument("--kind", default=None)
     a = p.parse_args(argv)
     if a.cmd == "run":
-        asyncio.run(_run(a.query, a.angles))
+        asyncio.run(_run(a.query, a.blind, a.web, a.rounds))
     elif a.cmd == "runs":
         for run in get_store().list_runs():
             print(run["id"], run["status"], run["target"], json.dumps((run["summary"] or {}).get("cost", {})))

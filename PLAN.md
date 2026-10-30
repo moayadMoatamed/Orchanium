@@ -1,183 +1,104 @@
-# Orchanium — Build Plan
+# Orchanium: Build Plan (v2)
 
-> Live, literature-grounded retrosynthesis. **The LLM proposes, live literature provides evidence, and deterministic chemistry verifies.**
-> Deadline: **Tue Nov 4, 9:00 PM ET**. Today: Fri Oct 30. That leaves about 5 working days, plus a buffer on Nov 4.
+> **Can this new molecule be made, and how?** Orchanium collects *clues* from published chemistry, connects them in a verified knowledge graph, and has two Meta-model agents debate over that graph. The output is a route and a feasibility verdict, and every claim traces back to evidence.
+>
+> **The LLM proposes and argues, literature provides clues, deterministic chemistry verifies.**
+>
+> Deadline: **Tue Nov 4, 9:00 PM ET**.
+
+v1 of this plan (re-finding routes for known drugs) is in git history. v2 targets **new compounds**, and known drugs are used only as tests in **blind mode** (see §6).
 
 ---
 
-## 1. What I checked in the Meta docs (dev.meta.ai, Oct 30)
+## 1. Design principles
 
-| Thing | Finding | Impact |
+1. **One shape per concept.** Every source produces the same `Clue`. Every molecule goes through one `Resolver`. Every precedent is scored by one function. Every agent uses the same graph tools. New sources plug in and need no special cases.
+2. **Structures never come from the LLM.** Names go to PubChem, then OPSIN. Cuts come from RDKit templates. SMILES come from databases. The LLM chooses, argues and explains.
+3. **Verdicts are computed, not voted.** Agents debate, but per-step evidence grades and the final feasibility label come from deterministic rules over the graph and the critic.
+4. **Everything is an event.** The UI, the Verification Chain and replay are all built from the event stream.
+
+---
+
+## 2. Pipeline
+
+```
+ target (SMILES / name / drawing)
+   │
+ ① DECOMPOSE (code)       reaction-class registry run in reverse (RDKit)
+   │                      → hypothesis tree: target ⇐ precursors ⇐ … ⇐ buyable
+   │                      every cut is a Hypothesis reaction in the graph
+   │
+ ② GATHER CLUES           one ResearchNeed per hypothesis step:
+   │  (ClueSources,        "reactions of class C making things like P from things like R"
+   │   parallel)          ├─ USPTO index      1.8M patent reactions, structure similarity (code)
+   │                      ├─ Web researcher   Muse Spark + web_search → clues with conditions
+   │                      ├─ Europe PMC       open-access full text → Spark extracts clues
+   │                      └─ PubChem          nearest known analogs of query molecules
+   │                      all return Clue → Resolver → graph
+   │
+ ③ KNOWLEDGE GRAPH        Molecule · Reaction(hypothesis | observed) · Clue · Source
+   │                      edges: reactant_of, produces, evidence_for, similar_to (Tanimoto),
+   │                             precedent_for (observed → hypothesis, scored)
+   │                      Critic (RDKit) + Citation checker annotate every reaction / clue
+   │
+ ④ DEBATE (Muse Spark ×2, function-calling over graph tools)
+   │   🔨 Builder:  proposes a route, cites precedent nodes per step
+   │   🔍 Skeptic:  hunts weak steps, negative clues, poor analogies; can request research
+   │   2–3 rounds · cited node ids are validated by code · critic is referee
+   │
+ ⑤ VERDICT (code) + REPORT (Spark)
+      per step:  direct precedent | analog precedent (score) | no precedent | blocked
+      overall:   Feasible | Plausible | Uncertain | Unlikely  (deterministic rule)
+```
+
+### Core data shapes
+- **`MolRef`** — `{name?, smiles?}` → `Resolver.resolve()` → `Molecule{inchikey, smiles, name, source: pubchem|opsin|smiles}`.
+- **`Clue`** — one observed reaction: reactants/products/reagents (`MolRef`), conditions `{temperature_c, time, solvent, catalyst, text}`, yield, **outcome (success | failure)**, source `{kind, url, title, snippet}`, `origin` (which ClueSource).
+- **`ResearchNeed`** — `{hypothesis_id, product, reactants, reaction_class}`. It is the only input a ClueSource receives.
+- **`precedent_score(observed, hypothesis)`** — class match + product similarity + reactant similarity → 0–1 (one function).
+
+### Graph tools (shared by both debate agents)
+`overview()` · `get_node(id)` · `neighbors(id, edge?)` · `precedents(hypothesis_id)` · `find(kind, filter)` · `check_step(hypothesis_id)` · `request_research(node_id, question)`. Agent prompts explain the schema and a traversal strategy (target → hypotheses → precedents → clues → sources).
+
+### Evidence grades and feasibility rule
+- Step grade: **direct** (clue with the exact molecules), **analog** (best precedent score ≥ 0.55), **weak** (≥ 0.35), **none**, **blocked** (critic fail).
+- Route: **Feasible** = all steps direct or analog, and no unresolved Skeptic objection backed by a failure clue. **Plausible** = at most one weak step. **Uncertain** = any none step. **Unlikely** = a blocked step, or a sustained failure-clue objection.
+
+---
+
+## 3. Free data sources (verified Oct 30)
+
+| Source | Key? | Use |
 |---|---|---|
-| Base URL / auth | `https://api.meta.ai/v1`, Bearer key. The docs call it `MODEL_API_KEY`. | We read `META_API_KEY` **or** `MODEL_API_KEY` from `.env`. |
-| Text model | `muse-spark-1.3` (1M ctx; text, image, PDF in; tools, structured output, search grounding) | Main model for all agents. |
-| Cheap model | `muse-spark-1.3-contributor`: **$0.10 / $0.20 per M tokens** vs $1.25 / $4.25 standard. Your data may be used for training, and it is capped at 150 RPM. | Use it for high-volume, low-stakes calls (name extraction, dedup, explanations). This **replaces the optional open-weights model**: it is just as cheap, needs no extra infra, and is still a Meta model. ⚠️ Your call: OK to send public-chemistry prompts in contributor mode? |
-| Big model | `muse-wonder-1.0` ($4 / $20) | Optional. Use it only for the hardest step (gap-filling disconnections) behind a flag. |
-| Responses API | `POST /v1/responses`. Structured output goes through `text.format` (not `response_format`). With `strict: true`: root object, `additionalProperties:false`, all keys required, no recursion. | Pydantic → JSON schema helper that enforces strict rules. |
-| Web search | `tools: [{"type":"web_search","search_context_size":"high"}]`. Answers carry `url_citation` annotations (`url,title,start_index,end_index`). `include: ["web_search_call.results"]` returns **every source considered**, with `title, url, snippet`. Costs $2.50 / 1k queries. | Great for the Verification Chain: we get the real snippet the model saw. |
-| Vision | `{"type":"input_image","image_url":"https://… or data:image/png;base64,…"}`. Max 50 images per request. | Figure reader sends crops as data URLs. |
-| **SAM 3.1** | **Hosted on the same endpoint**: `model: "sam-3.1"`, a noun-phrase text prompt plus `input_image`. The output is a text grammar `<0f>N<\|box;x1..;y1..;x2..;y2..\|><\|mask;…\|>`, with `metadata.include_confidence`. Costs $2.50 / 1k images. | No Modal or GPU needed. We parse boxes ourselves (we only need boxes for cropping, not masks). |
-| ✅ Smoke-tested (Oct 30) | **text, structured, vision, web_search, web_search+text.format, SAM all work.** | See findings below. |
-
-**Smoke-test findings (Oct 30):**
-- `web_search` + strict `text.format` **combine in one call**. A tool-using response has several `message` items (status preambles), and the JSON is in the **last** one.
-- `web_search_call` items carry `action.query` (the actual query, which feeds our Query nodes) and `results[] {title,url,snippet}`, but **snippets came back empty**. The Citation checker must fetch pages itself.
-- `url_citation` URLs sometimes have mangled host casing (`https://Www.Mdpi.Com/...`), so normalize hosts.
-- One research call with `search_context_size:"high"` ran 15 searches in 63 s, using about 204k input tokens (139k cached). Cost ≈ $0.17, so use `"medium"` by default.
-- Spark spends most output on reasoning tokens, so use `reasoning.effort:"low"` for simple extraction/normalization calls.
-- **SAM 3.1 returns one instance per concept call** on scheme images. **Iterative find → white-out → re-query** found all 3 molecules in an RDKit reaction image (then returned nothing). `"arrow"` finds the reaction arrow. About 1.5 s per call, with confidence `c` in the box token.
-
-**Budget sanity:** a run is about 5 researchers × (1–3 searches + about 30k tokens) plus about 40 small calls, which comes to roughly **$0.30–0.80 per run** on standard Spark. With every call cached and replay mode, $150 covers 150+ fresh runs.
+| Meta Model API (Spark, Wonder, SAM 3.1) | yours | research, extraction, debate, figure reading |
+| USPTO reactions 1976–2016 (Figshare, CC0) | none, local ~163 MB | structure-similarity precedents with patent citations |
+| PubChem PUG REST | none | names → structures, similarity search for analogs |
+| OPSIN (EBI web service) | none | systematic names of never-made molecules |
+| Europe PMC REST | none | open-access full-text experimental sections |
+| OpenAlex | free key (since Feb 2026) | optional, later |
 
 ---
 
-## 2. Architecture
-
-```
-                    ┌──────────────── FastAPI ────────────────┐
- React UI ◄── SSE ──┤ /api/runs/{id}/events  (live or replay)  │
-   (Vite)   ── REST ┤ /api/runs, /api/depict, /api/mol3d       │
-                    └──────────────┬──────────────────────────┘
-                                   │ asyncio orchestrator (per run)
-   ┌──────────┐   ┌───────────────┐   ┌──────────────┐   ┌────────────┐
-   │ Planner  │──►│ Researchers×N │──►│ Graph builder│──►│  Critic    │
-   │ PubChem+ │   │ Spark+web_srch│   │ PubChem norm │   │ RDKit only │
-   │ RDKit    │   │ ↺ intermediates│  │ dedupe/merge │   │ pass/warn/ │
-   └──────────┘   └──────┬────────┘   └──────┬───────┘   │ block      │
-                         ▼                   │           └─────┬──────┘
-                  ┌──────────────┐           ▼                 ▼
-                  │ Figure reader│     ┌───────────┐    ┌────────────┐
-                  │ SAM3.1 crops │     │ Citation  │    │ Reasoner   │
-                  │ → Spark vision│    │ checker   │    │ AND/OR srch│
-                  │ → RDKit+PubCh│     │ (URL+quote│    │ gaps→Spark │
-                  └──────────────┘     │  match)   │    │ →Critic    │
-                                       └───────────┘    └─────┬──────┘
-                                                              ▼
-                                                        ┌──────────┐
-                                                        │ Reporter │
-                                                        └──────────┘
- Everything emits typed events → EventBus → (SSE fan-out + SQLite event log)
- Caches (SQLite): PubChem, LLM (hash of request), web search, HTTP fetch
-```
-
-### Event schema (designed first; the frontend builds from the event stream alone)
-
-Envelope: `{seq, run_id, ts, kind, data}`. The `kind` values are:
-
-| kind | data | drives |
-|---|---|---|
-| `run.status` | `{status, target, caps}` | header |
-| `agent.status` | `{agent_id, agent_type, label, status, message}` | agent lanes |
-| `agent.log` | `{agent_id, text, level}` | lane ticker |
-| `prov.node` (upsert) | **`{id, parent_ids[], step_id?, node_type, status, summary, details, agent_id}`** | Verification Chain |
-| `graph.molecule` (upsert) | `{id(inchikey), smiles, name, status, purchasable, depth}` | knowledge graph |
-| `graph.reaction` (upsert) | `{id, reactants[], products[], reagents[], evidence_ids[], label, critic}` | knowledge graph |
-| `route` | `{route_id, rank, steps[], score, label}` | route view |
-| `cost` | `{llm_calls, tokens_in, tokens_out, searches, sam_images, usd}` | cost meter |
-| `report` | `{markdown}` | report panel |
-
-`node_type` ∈ `query | source | extraction | vision | resolution | check | agreement | verdict` (plus `citation`, my addition).
-`status` ∈ `pending | running | pass | warn | fail`. Verdict nodes also carry `label` ∈ `literature | proposed | rejected | purchasable`.
-`step_id` = the reaction id, which lets the UI group a chain per route step. Replay re-emits the same log with the original timing, scaled by a speed factor.
-
-### Graph model
-networkx `DiGraph` per run. The **Molecule** key is the InChIKey, from PubChem → RDKit. The **Reaction** key is the hash of the sorted reactant + product InChIKeys. Edges are `reactant_of` (mol→rxn) and `produces` (rxn→mol). A reaction carries `evidence[]`, `critic`, and `label`.
-
-### Critic checks (deterministic, each one emits its own `check` prov node)
-1. `parse`: every species sanitizes in RDKit.
-2. `element_balance`: product heavy atoms ⊆ reactants + listed reagents, within a tolerance. Unbalanced small leaving groups (H₂O, HCl, AcOH, …) are allowed from a whitelist.
-3. `product_differs`: product InChIKey ∉ reactants.
-4. `conserved_core`: MCS between product and largest reactant ≥ X% of product heavy atoms. This is a cheap stand-in for atom mapping (see §7).
-5. `no_cycle`: on route assembly.
-6. `fg_conflicts`: SMARTS warnings (e.g. free amine + acyl chloride elsewhere, unprotected OH under Grignard).
-7. `reaction_class` (bonus): SMARTS templates for ~25 named transformations (esterification, amide coupling, Friedel–Crafts acylation, reduction, Kolbe–Schmitt, …). A match adds confidence and a label.
-The LLM may only write the plain-English `explanation` field. It never writes `status`.
-
-### Reasoner
-AND/OR best-first search from the target over the graph. Leaves are purchasable (curated YAML, ~200 InChIKeys, plus heuristics such as heavy atoms ≤ 8 with no stereo). Score = evidence count, minus step penalty, minus warnings. Gaps (a non-purchasable leaf with no producing reaction) → Spark proposes ≤ 3 disconnections as **names** → PubChem → Critic → accepted proposals enter as `proposed`. Max depth 6.
+## 4. Reuse from v1
+Kept as-is: Meta client (cache, cost, caps), SAM wrapper, PubChem + RDKit utilities, critic checks, purchasability, citation checker, event bus, store, and replay. The researcher becomes the Web ClueSource. The graph builder and reasoner are replaced by graph v2, the debate and the verdict.
 
 ---
 
-## 3. My changes and additions to the brief (and why)
+## 5. Schedule
 
-1. **Citation checker agent (new, deterministic).** For every evidence record: fetch the URL (cached), check that it resolves, and fuzzy-match the snippet and the reactant/product names against the page text. This adds a `citation` node to the chain (✓ resolves, ✓ quote found). It turns "has a citation" into "the citation demonstrably says this", the strongest anti-hallucination signal we can show judges, and it costs nothing.
-2. **Contributor-mode Spark instead of a 3rd-party open-weights host**: same price class, zero extra infra (needs your OK, see above).
-3. **One-pass research (updated after smoke test).** Spark + web_search + a strict JSON schema in **one call** returns evidence records directly, and `web_search_call.action.query` / `results` give the Query and Source nodes. Because snippets are model-written, the deterministic **Citation checker** fetches each page and verifies the snippet and names actually appear there.
-4. **MCS "conserved core" check instead of rxnmapper by default.** rxnmapper drags in torch and old transformers pins (installation is painful on Windows and Docker). It stays an optional extra if time permits.
-5. **Figure round-trip check (vision used twice).** After a crop is read into SMILES, RDKit re-renders it and Spark vision compares the rendering with the original crop ("same molecule?"). The deterministic part is the PubChem/RDKit agreement. The visual check is shown as a separate, clearly labelled signal.
-6. **React Flow + ELK for both the chain and the knowledge graph**: one rendering stack and one token file, so the same node visuals appear everywhere. ELK's layered layout gives a readable retrosynthesis tree with smooth position tweening, where force layouts jitter.
-7. **Run timeline scrubber**: replay can be dragged to any point in time. It is great for the 2-minute video and comes nearly free, because the UI is a pure function of the event log.
-8. **Green-chemistry metrics per route** (atom economy, step count, longest linear sequence), computed by RDKit. Cheap, deterministic, and judges like it.
-9. **Where figures come from:** figure reading targets open sources where we can reliably pull scheme images (Google Patents `patentimages`, PMC/Europe PMC figures, orgsyn.org, Wikipedia/Commons). Paywalled publisher pages are skipped and shown as "figure unavailable".
+| Day | Goal |
+|---|---|
+| **Fri Oct 30** | v1 vertical slice ✅. v2: class registry + decomposer, USPTO index, clue model, graph v2 |
+| **Sat Oct 31** | Clue sources (USPTO, web, PubChem analogs), graph tools, debate + verdict, blind ibuprofen end to end (CLI) |
+| **Sun Nov 1** | FastAPI + SSE, frontend shell, **Verification Chain**, live graph, debate panel |
+| **Mon Nov 2** | Europe PMC source, figure reader (SAM), route view, report, cost meter, replay |
+| **Tue Nov 3** | Blind-mode eval (4 targets + 1 truly novel molecule), README, Docker, polish |
+| **Wed Nov 4** | Buffer, demo video, submit before 9 PM ET |
 
----
-
-## 4. File layout
-
-```
-Orchanium_Ultra/
-├─ PLAN.md  README.md  docker-compose.yml  .env.example
-├─ backend/
-│  ├─ pyproject.toml / requirements.txt   Dockerfile
-│  ├─ orchanium/
-│  │  ├─ main.py               FastAPI app, SSE, REST
-│  │  ├─ config.py             settings, caps, model ids
-│  │  ├─ events.py             event schema (pydantic) + EventBus
-│  │  ├─ store.py              SQLite: runs, events, caches
-│  │  ├─ orchestrator.py       run lifecycle, parallelism, caps
-│  │  ├─ meta/
-│  │  │  ├─ client.py          Responses API wrapper (cache, cost, retries, strict schema)
-│  │  │  └─ sam.py             SAM 3.1 call + output-grammar parser
-│  │  ├─ chem/
-│  │  │  ├─ pubchem.py         name→structure (cached, rate-limited)
-│  │  │  ├─ rdkit_utils.py     canon, inchikey, depict SVG, 3D molblock, FG scan
-│  │  │  ├─ critic.py          deterministic checks
-│  │  │  ├─ templates.py       reaction-class SMARTS
-│  │  │  └─ purchasable.py + data/building_blocks.yaml
-│  │  ├─ agents/  planner.py researcher.py figure_reader.py graph_builder.py
-│  │  │           citation_checker.py reasoner.py reporter.py
-│  │  └─ graph.py              networkx model + route search
-│  ├─ prompts/                 planner.md researcher_search.md researcher_extract.md
-│  │                           figure_read.md gap_proposer.md reporter.md explain_verdict.md
-│  └─ tests/                   test_critic.py test_normalize.py test_sam_parser.py
-├─ frontend/  (Vite + React + TS + Tailwind + @xyflow/react + elkjs + 3Dmol)
-│  └─ src/
-│     ├─ tokens.ts             ALL colors/icons per node type, status, verdict
-│     ├─ state/runStore.ts     zustand reducer: events → UI state (live == replay)
-│     ├─ api/sse.ts
-│     └─ components/ AgentLanes, VerificationChain, KnowledgeGraph, RouteView,
-│                    NodeDetailPanel, Mol2D, Mol3D, ReportPanel, CostMeter,
-│                    Legend, Timeline, Filters
-└─ scripts/  smoke_meta.py  smoke_chem.py  eval.py  record_demo.py
-```
+**Cut order if late:** 3D viewer → Europe PMC → figure reader → timeline scrubber.
+**Never cut:** decomposer, clues, graph, debate, verdict, Verification Chain, replay.
 
 ---
 
-## 5. Milestones → days
-
-| Day | Date | Goal | Done when |
-|---|---|---|---|
-| D1 | **Fri Oct 30** | Smoke tests (Meta text, web_search, structured output, vision, SAM; RDKit; PubChem). Event schema, store, Meta client, PubChem/RDKit layer, Critic, plus tests | `pytest` green; `smoke_meta.py` prints all ✓ |
-| D2 | Sat Oct 31 | **Vertical slice (CLI)**: aspirin → planner → 1 researcher → graph → critic → citation check → reasoner → reporter. Event log in SQLite; replay works | `python -m orchanium.cli run aspirin` prints a cited, critic-checked route. **Commit.** |
-| D3 | Sun Nov 1 | Parallel researchers plus intermediate follow-ups. FastAPI SSE. Frontend shell: tokens, agent lanes, **Verification Chain v1**, knowledge graph, route view | Aspirin and paracetamol build live in the browser. **Commit.** |
-| D4 | Mon Nov 2 | Figure reader (SAM + vision + round-trip). Reasoner gap proposals (`proposed` label). Node detail panel, 2D/3D viewers, report panel, cost meter | Ibuprofen shows both routes; at least one figure read appears in a chain. **Commit.** |
-| D5 | Tue Nov 3 | Chain polish (edge flow animation, filters, collapse checks, PNG/SVG export), timeline scrubber, `eval.py` on 4 targets, README + diagram, Docker Compose | Eval table in README; `docker compose up` works. **Commit.** |
-| D6 | Wed Nov 4 | Buffer, record replay runs, demo script and video, submit **before 9 PM ET** | Submitted |
-
-**Cut line if behind** (drop in this order): Muse Wonder flag → timeline scrubber → round-trip vision check → green metrics → 3D viewer → figure reader (the chain still has every other node type). Never cut: live chain, critic, citations, replay.
-
----
-
-## 6. Feasibility notes (telling you early)
-
-- **Figure reader risk retired (Oct 30).** SAM 3.1 with "chemical structure" + iterative white-out finds every molecule in a scheme. The remaining risk is real-world figure quality (scanned patents), and Spark vision reads plus PubChem cross-checks will flag those.
-- **Literature access**: web_search returns pages, not full PDFs. Most evidence will be snippet-level from Wikipedia, patents, Org. Synth., PMC, and Chemistry LibreTexts. That is honest and enough for the 4 eval targets.
-- **Python**: you have 3.13 locally. RDKit has 3.13 wheels, so local dev uses a venv on 3.13 and Docker uses 3.11 as specified.
-- **rxnmapper**: optional only (see §3.4).
-
----
-
-## 7. Fallbacks for API unknowns
-- If `web_search` + `text.format` can't combine, use the two-pass approach (already the default).
-- If `web_search_call.results` is missing, take sources from `url_citation` annotations only.
-- If a research call is slow (>60 s), apply a per-agent timeout. The UI shows the agent as `failed` and the run continues.
+## 6. Evaluation: blind mode
+For a known drug, `blind=True` drops every clue that contains the target molecule or names it, so Orchanium must reason from analogs alone. Success means it recovers a published route (or a critic-valid alternative) and rates it Feasible or Plausible. Targets: paracetamol, ibuprofen, sildenafil, and one truly novel analog (no PubChem entry) as the showcase.
