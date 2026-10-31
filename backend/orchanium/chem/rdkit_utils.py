@@ -7,6 +7,7 @@ from functools import lru_cache
 from rdkit import Chem, RDLogger
 from rdkit.Chem import AllChem, Descriptors, rdMolDescriptors
 from rdkit.Chem.Draw import rdMolDraw2D
+from rdkit.Chem.Scaffolds import MurckoScaffold
 
 RDLogger.DisableLog("rdApp.*")
 
@@ -160,3 +161,18 @@ def png_bytes(smiles: str, size: int = 300) -> bytes | None:
     d.DrawMolecule(m)
     d.FinishDrawing()
     return d.GetDrawingText()
+
+@lru_cache(maxsize=4096)
+def scaffold(smiles: str | None, min_rings: int = 2, min_atoms: int = 10) -> str | None:
+    """The molecule's ring skeleton (Murcko scaffold), or None when it is too
+    plain to identify a chemical series. A one-ring scaffold like benzene says
+    nothing about who a molecule is related to, so it is not returned."""
+    m = parse(smiles)
+    if m is None:
+        return None
+    core = MurckoScaffold.GetScaffoldForMol(m)
+    if core is None or core.GetNumHeavyAtoms() < min_atoms:
+        return None
+    if rdMolDescriptors.CalcNumRings(core) < min_rings:
+        return None
+    return Chem.MolToSmiles(core)
