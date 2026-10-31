@@ -55,7 +55,7 @@ function Turn({ t }: { t: ProvNode }) {
           <details className="mt-1.5 text-[12.5px] text-muted">
             <summary className="cursor-pointer select-none">
               Technical detail
-              {cited > 0 && ` · ${plural(cited, "piece")} of evidence cited`}
+              {cited > 0 && ` · ${plural(cited, "evidence item")} cited`}
               {struck > 0 && (
                 <span style={{ color: TONE.bad.fg }}> · {plural(struck, "citation")} rejected</span>
               )}

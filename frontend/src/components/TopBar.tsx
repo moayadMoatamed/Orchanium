@@ -1,4 +1,4 @@
-import { Search } from "lucide-react";
+import { EyeOff, Search } from "lucide-react";
 import { useEffect, useState } from "react";
 import { elapsed, useRun } from "../state/runStore";
 import { Mono } from "./primitives";
@@ -56,7 +56,7 @@ export function TopBar({ onRun }: { onRun: (target: string, opts: { blind: boole
 
   return (
     <header className="sticky top-0 z-20 border-b border-hairline bg-ground/90 backdrop-blur">
-      <div className="flex items-center gap-4 px-5 py-3">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3">
         <Logo />
         <form
           className="flex min-w-0 flex-1 items-center gap-2.5"
@@ -79,19 +79,18 @@ export function TopBar({ onRun }: { onRun: (target: string, opts: { blind: boole
           </button>
         </form>
 
-        <label
-          title="Blind mode hides any evidence that mentions the target, to prove the route was reasoned out rather than looked up"
-          className="hidden shrink-0 cursor-pointer select-none items-center gap-2 text-[12.5px] text-muted lg:flex"
+        <button
+          type="button"
+          aria-pressed={blind}
+          disabled={busy}
+          onClick={() => setBlind(!blind)}
+          title="Hides every source that mentions this molecule, so the route has to be reasoned out from other reactions rather than looked up"
+          className={`inline-flex shrink-0 items-center gap-1.5 rounded-chip border px-3 py-2 text-[13px] font-medium transition-colors ${
+            blind ? "border-accent/40 bg-accent/10 text-accent" : "border-hairline text-muted hover:text-ink"}`}
         >
-          <input
-            type="checkbox"
-            checked={blind}
-            disabled={busy}
-            onChange={(e) => setBlind(e.target.checked)}
-            className="accent-accent"
-          />
-          Blind mode
-        </label>
+          <EyeOff size={15} strokeWidth={1.9} aria-hidden />
+          Blind mode {blind ? "on" : "off"}
+        </button>
 
         <div className="flex shrink-0 items-center gap-2 text-[12.5px] text-muted">
           {st.live && <span className="h-[7px] w-[7px] animate-livedot rounded-full bg-accent" />}

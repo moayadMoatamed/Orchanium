@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import {
+  EyeOff,
   ArrowRight, BookOpen, BrainCircuit, CircleAlert, Copy, Download, FileCheck2, FlaskConical, Library,
   Microscope, PackageCheck, RotateCcw, Scale, ShieldAlert, ShieldCheck, Target, TriangleAlert,
 } from "lucide-react";
@@ -123,6 +124,17 @@ function Intro() {
           </Card>
         ))}
       </div>
+      <Card className="mt-6 flex max-w-4xl items-start gap-3 p-4">
+        <EyeOff size={18} strokeWidth={1.6} className="mt-0.5 shrink-0 text-accent" aria-hidden />
+        <div>
+          <div className="text-[13.5px] font-medium">Proof that it reasons: Blind mode</div>
+          <div className="mt-1 text-[12.5px] leading-relaxed text-muted">
+            Turn on <span className="text-ink">Blind mode</span> next to the search box and every patent or paper that
+            mentions your molecule is hidden. Orchanium then has to build the route from other, related reactions,
+            the same way it handles a compound nobody has made yet. Try it on a known drug and compare.
+          </div>
+        </div>
+      </Card>
       <div className="mt-8 text-[12.5px] text-muted">
         Try <span className="text-ink">ibuprofen</span>, or paste a SMILES for a new compound.
       </div>
