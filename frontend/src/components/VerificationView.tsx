@@ -68,7 +68,7 @@ function checksFor(nodes: ProvNode[]): Check[] {
       question: "Has this reaction been published?",
       status: sources.length ? "pass" : "warn",
       answer: sources.length
-        ? `Yes, it appears in ${plural(sources.length, "source")} (${parts.join(", ")}).`
+        ? `Yes, it appears in ${plural(sources.length, "source")} (${parts.join(", ")}), which give${sources.length === 1 ? "s" : ""} ${plural(reported.length, "evidence item")}.`
         : "No published source was found for this step.",
       nodes: [...sources, ...reported],
     },
@@ -246,7 +246,13 @@ export function VerificationView() {
   }
 
   const g = GRADE[step.grade as Grade] ?? GRADE.none;
-  const passed = checks.filter((c) => c.status === "pass").length;
+  const tally = (st: string) => checks.filter((c) => c.status === st).length;
+  const summary = [
+    `${tally("pass")} passed`,
+    tally("warn") && `${tally("warn")} with a note`,
+    tally("fail") && `${tally("fail")} failed`,
+    tally("skip") && `${tally("skip")} not applicable`,
+  ].filter(Boolean).join(", ");
   const name = (id: string | null) => (id ? s.molecules[id]?.name ?? id : "");
 
   return (
@@ -277,7 +283,7 @@ export function VerificationView() {
         <Card tone={g.tone as "good" | "warn" | "bad"} className="mt-5 flex flex-wrap items-center gap-3 px-4 py-3">
           <GradeBadge grade={step.grade} />
           <span className="text-[13.5px]">{g.plain}</span>
-          <span className="ml-auto text-[12.5px] text-muted">{passed} of {checks.length} checks passed</span>
+          <span className="ml-auto text-[12.5px] text-muted">Checks: {summary}</span>
         </Card>
 
         <Section className="mt-8" title="The checks" hint="Click a check to see the evidence behind it.">

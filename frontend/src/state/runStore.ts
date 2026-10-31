@@ -317,9 +317,10 @@ export function chainForStep(s: RunState, stepId: string) {
   return { nodes, byType };
 }
 
+/** Documents behind a step (patents, pages, lab notes): the same count the
+ *  Verification page gives, so "source" means one thing everywhere. */
 export function sourceCount(s: RunState, stepId: string) {
-  const { byType } = chainForStep(s, stepId);
-  return new Set((byType["precedent"] ?? []).map((n) => n.details?.observed_reaction)).size;
+  return (chainForStep(s, stepId).byType["source"] ?? []).length;
 }
 
 export function elapsed(s: RunState) {

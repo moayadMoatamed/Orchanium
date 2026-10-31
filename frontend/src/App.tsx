@@ -1,4 +1,4 @@
-import { BrainCircuit, FileSearch, History, MessagesSquare, Network, Play, ShieldCheck, type LucideIcon } from "lucide-react";
+import { BrainCircuit, EyeOff, FileSearch, History, MessagesSquare, Network, Play, ShieldCheck, type LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { ActivityDock } from "./components/ActivityDock";
 import { DebateView } from "./components/DebateView";
@@ -19,13 +19,14 @@ const TABS: { id: Tab; label: string; icon: LucideIcon }[] = [
 export default function App() {
   const s = useRun();
   const disconnect = useRef<(() => void) | null>(null);
-  const [recent, setRecent] = useState<{ id: string; target: string; status: string }[]>([]);
+  const [recent, setRecent] = useState<{ id: string; target: string; verdict?: string; blind?: boolean }[]>([]);
   const [known, setKnown] = useState<{ clues: number; molecules: number; runs: number; by_origin: Record<string, number> } | null>(null);
 
   useEffect(() => {
-    fetch("/api/runs?limit=8")
+    fetch("/api/runs?limit=30")
       .then((r) => r.json())
-      .then((rows) => setRecent(rows.map((r: any) => ({ id: r.id, target: r.target, status: r.status }))))
+      .then((rows) => setRecent(rows.filter((r: any) => r.status === "done").slice(0, 8)
+        .map((r: any) => ({ id: r.id, target: r.target, verdict: r.summary?.verdict, blind: r.summary?.blind }))))
       .catch(() => {});
     fetch("/api/knowledge").then((r) => r.json()).then(setKnown).catch(() => {});
   }, [s.status, s.revisions.length]);
@@ -63,7 +64,12 @@ export default function App() {
         ))}
 
         <div className="ml-auto flex items-center gap-3 text-[12.5px] text-muted">
-          {s.blind && <span title="Evidence mentioning the target was hidden">blind mode</span>}
+          {s.blind && (
+            <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-chip border border-accent/30 bg-accent/10 px-2 py-0.5 font-medium text-accent"
+                  title="Every source that mentions this molecule was hidden, so the route had to be reasoned out">
+              <EyeOff size={13} strokeWidth={2} aria-hidden /> Blind run
+            </span>
+          )}
           {known && known.clues > 0 && (
             <span
               className="hidden items-center gap-1.5 whitespace-nowrap md:inline-flex"
@@ -86,7 +92,8 @@ export default function App() {
                 <option value="">Past runs…</option>
                 {recent.map((r) => (
                   <option key={r.id} value={r.id}>
-                    {r.target.length > 36 ? `${r.target.slice(0, 35)}…` : r.target} · {r.status === "failed" ? "stopped" : r.status}
+                    {r.target.length > 36 ? `${r.target.slice(0, 35)}…` : r.target}
+                    {r.verdict ? ` · ${r.verdict}` : ""}{r.blind ? " · blind" : ""}
                   </option>
                 ))}
               </select>
