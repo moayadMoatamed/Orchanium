@@ -100,41 +100,60 @@ def _source_keys(text: str) -> set[str]:
     return {f"{c.upper()}{d}" for c, d in _PATENT.findall(text or "")} | {(text or "").lower()}
 
 
-def _hidden_hit(ctx: RunContext, resolved: list[Resolved], clue: Clue,
-                products: list[Resolved] | None = None) -> str | None:
-    """Why a clue must be hidden in blind mode, or None.
-    Blind mode hides clues that contain the target or a hidden molecule, name
-    the target (if it has a real name), come from an explicitly hidden source
-    (e.g. the held-out patent), or, in strict mode, MAKE a product more similar
-    than `similarity_cap` to the target or a hidden molecule (ingredients are
-    not judged: using the same buyable starting material is not leakage)."""
-    if not ctx.blind or not ctx.target:
-        return None
+def _chemistry_leak(ctx: RunContext, resolved: list[Resolved],
+                    products: list[Resolved] | None) -> str | None:
+    """Does this evidence describe the target's own chemistry? Three measures
+    of that one question, strongest first: the molecule itself, its ring
+    skeleton (what a chemical series and a patent family share), or a
+    fingerprint near-twin. Only what a clue MAKES is judged by the last two:
+    buying the same starting material as someone else is not leakage."""
     protected = [ctx.target.smiles] + ctx.hidden_molecules
     blocks = {rd.inchikey(s).split("-")[0] for s in protected}
     for r in resolved:
         if r.ok and r.inchikey.split("-")[0] in blocks:
             return "contains the target" if r.inchikey == ctx.target.inchikey else f"contains hidden molecule {r.name}"
-    # A patent family writes about one chemical series under many names, and a
-    # near-final intermediate can still score low on fingerprint similarity, so
-    # sharing the target's ring skeleton counts as knowing the answer.
+    made = products if products is not None else resolved
     cores = {c for s in protected if (c := rd.scaffold(s))}
-    for r in (products if products is not None else resolved):
+    for r in made:
         if r.ok and cores and rd.scaffold(r.smiles) in cores:
             return f"makes {r.name}, built on the target's own scaffold"
     if ctx.similarity_cap is not None:
-        for r in (products if products is not None else resolved):
+        for r in made:
             if r.ok and (sim := max(tanimoto(r.smiles, s) for s in protected)) > ctx.similarity_cap:
-                return f"makes {r.name}, {sim:.0%} similar to a hidden molecule (strict mode)"
+                return f"makes {r.name}, {sim:.0%} similar to a hidden molecule"
+    return None
+
+
+def _document_leak(ctx: RunContext, clue: Clue) -> str | None:
+    """Does the document this came from know the target? By naming it, by being
+    held out by the caller, or because another record in it already gave the
+    answer away, which makes the whole document untrustworthy."""
     text = " ".join(filter(None, [clue.source.snippet, clue.source.title, clue.source.url, clue.source.citation]))
     if ctx.target.known and ctx.target.name.lower() in text.lower():
         return "names the target"
     keys = _source_keys(text)
     for h in ctx.hidden:
-        hk = _source_keys(h)
-        if hk & keys or any(h.lower() in k for k in keys):
+        if _source_keys(h) & keys or any(h.lower() in k for k in keys):
             return f"from hidden source {h}"
+    if (key := _doc_key(clue)) in ctx.blocked_sources:
+        return f"comes from {key}, a document that already gave the target away"
     return None
+
+
+def _hidden_hit(ctx: RunContext, resolved: list[Resolved], clue: Clue,
+                products: list[Resolved] | None = None) -> str | None:
+    """Why a clue must be hidden in blind mode, or None.
+
+    Blind mode asks two questions rather than keeping a list of special cases:
+      1. does this evidence describe the target's own chemistry?
+      2. does the document it came from know the target?
+    Either one hides the clue, and one yes anywhere in a document hides every
+    record from it (see `ingest`), because a document that knows the answer
+    leaks its conditions, solvents and amounts just as surely as a structure.
+    New ways of knowing the answer belong inside one of these two questions."""
+    if not ctx.blind or not ctx.target:
+        return None
+    return _chemistry_leak(ctx, resolved, products) or _document_leak(ctx, clue)
 
 
 async def _add_clue_molecule(ctx: RunContext, g: KnowledgeGraph, r: Resolved) -> Molecule:
@@ -187,9 +206,8 @@ async def ingest(ctx: RunContext, g: KnowledgeGraph, clues: list[Clue], query_id
 
     for clue, main_res in kept:
         refs = clue.reactants + clue.products
-        if (key := _doc_key(clue)) in ctx.blocked_sources:
-            ctx.log(agent_id, f"blind mode: dropped a clue from {key}, a source that knows the target "
-                              f"({clue.source.title[:60]})")
+        if why := _hidden_hit(ctx, main_res, clue, products=main_res[len(clue.reactants):]):
+            ctx.log(agent_id, f"blind mode: dropped a clue that {why} ({clue.source.title[:60]})")
             continue
         url = clue.source.url or clue.source.citation or clue.id
         sid = short_id("src", url)
