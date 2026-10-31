@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any
@@ -36,7 +37,16 @@ class RunContext:
     hidden: list[str] = field(default_factory=list)  # blind mode: also hide these sources (patent ids, URLs)
     hidden_molecules: list[str] = field(default_factory=list)  # blind mode: also hide clues containing these (SMILES)
     similarity_cap: float | None = None              # strict blind mode: hide clues with molecules more similar than this
+    blocked_sources: set[str] = field(default_factory=set)     # blind mode: documents that gave away the answer
+    redact_terms: list[str] = field(default_factory=list)      # blind mode: names of the target, hidden from agents
     prov_nodes: dict[str, ProvNode] = field(default_factory=dict)
+
+    def redact(self, text: str) -> str:
+        """Blind mode: the target's names never reach an agent, so a route has
+        to be reasoned out of the evidence rather than recalled from one."""
+        for term in self.redact_terms:
+            text = re.sub(re.escape(term), "the target compound", text, flags=re.IGNORECASE)
+        return text
 
     def prov(self, node: ProvNode) -> ProvNode:
         """Upsert a provenance node; parent_ids are merged, never dropped."""

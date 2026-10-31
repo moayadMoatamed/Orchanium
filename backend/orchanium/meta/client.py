@@ -201,6 +201,9 @@ class MetaClient:
         if not settings.meta_api_key:
             raise MetaAPIError("META_API_KEY / MODEL_API_KEY not configured")
         self.budget = budget or Budget()
+        # blind mode sets this; every request is scrubbed on the way out, so no
+        # agent, prompt or tool result can carry a hidden name to the model
+        self.redact: Callable[[str], str] | None = None
         self._http = httpx.AsyncClient(
             base_url=settings.meta_base_url,
             headers={"Authorization": f"Bearer {settings.meta_api_key}"},
@@ -210,7 +213,20 @@ class MetaClient:
     async def aclose(self):
         await self._http.aclose()
 
+    def scrub(self, obj: Any) -> Any:
+        """Apply `redact` to every string in a request body."""
+        if self.redact is None:
+            return obj
+        if isinstance(obj, str):
+            return self.redact(obj)
+        if isinstance(obj, list):
+            return [self.scrub(x) for x in obj]
+        if isinstance(obj, dict):
+            return {k: self.scrub(v) for k, v in obj.items()}
+        return obj
+
     async def _post(self, body: dict, attempts: int = 3) -> dict:
+        body = self.scrub(body)
         last = None
         for i in range(attempts):
             try:
@@ -255,6 +271,9 @@ class MetaClient:
         if max_output_tokens:
             body["max_output_tokens"] = max_output_tokens
 
+        # hash the scrubbed body, so a blind run never reads a cached answer
+        # that was produced with the target's name in the prompt
+        body = self.scrub(body)
         key = hash_key(body)
         store = get_store()
         if use_cache and (hit := store.cache_get(CACHE_NS, key)):
@@ -312,6 +331,7 @@ class MetaClient:
             if schema is not None:
                 body["text"] = {"format": {"type": "json_schema", "name": schema.__name__,
                                            "schema": strict_schema(schema), "strict": True}}
+            body = self.scrub(body)
             key = hash_key(body)
             store = get_store()
             if (hit := store.cache_get(CACHE_NS + ".raw", key)) is not None:

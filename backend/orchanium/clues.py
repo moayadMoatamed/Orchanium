@@ -144,8 +144,24 @@ async def _add_clue_molecule(ctx: RunContext, g: KnowledgeGraph, r: Resolved) ->
     return m
 
 
+def _doc_key(clue: Clue) -> str:
+    """One key per source document, so blind mode can drop a whole paper or
+    patent rather than one record out of it."""
+    text = " ".join(filter(None, [clue.source.citation, clue.source.url]))
+    if pats := _PATENT.findall(text):
+        return f"{pats[0][0].upper()}{pats[0][1]}"
+    if clue.source.url:
+        s = urlsplit(clue.source.url)
+        return f"{s.netloc}{s.path}"
+    return clue.source.citation or clue.source.title or clue.id
+
+
 async def ingest(ctx: RunContext, g: KnowledgeGraph, clues: list[Clue], query_id: str, agent_id: str) -> int:
     added = 0
+    # first pass: resolve, and note every document that gives the answer away.
+    # A document that knows the target is dropped whole, because its other
+    # records would still hand over real conditions, amounts and solvents.
+    kept: list[tuple[Clue, list]] = []
     for clue in clues:
         refs = clue.reactants + clue.products
         res = await resolve_many(refs + clue.reagents)
@@ -157,7 +173,16 @@ async def ingest(ctx: RunContext, g: KnowledgeGraph, clues: list[Clue], query_id
             ctx.log(agent_id, f"not evidence: supplier product page ({clue.source.title[:60]})")
             continue
         if why := _hidden_hit(ctx, main_res, clue, products=main_res[len(clue.reactants):]):
+            ctx.blocked_sources.add(_doc_key(clue))
             ctx.log(agent_id, f"blind mode: dropped a clue that {why} ({clue.source.title[:60]})")
+            continue
+        kept.append((clue, main_res))
+
+    for clue, main_res in kept:
+        refs = clue.reactants + clue.products
+        if (key := _doc_key(clue)) in ctx.blocked_sources:
+            ctx.log(agent_id, f"blind mode: dropped a clue from {key}, a source that knows the target "
+                              f"({clue.source.title[:60]})")
             continue
         url = clue.source.url or clue.source.citation or clue.id
         sid = short_id("src", url)

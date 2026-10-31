@@ -21,6 +21,7 @@ from typing import Callable
 from . import lab, memory
 from .agents import citation_checker, debate, decomposer, planner, reporter, verdict
 from .agents.graph_tools import _hyp_brief
+from .chem.pubchem import synonyms
 from .clues import gather, link_and_emit, need_for
 from .config import settings
 from .context import RunContext
@@ -49,7 +50,9 @@ class Orchestrator:
                  memory: bool = True, extra_sink: Callable[[Event], None] | None = None):
         self.query, self.blind, self.hidden = query, blind, hidden or []
         self.hidden_molecules = hidden_molecules or []
-        self.similarity_cap = similarity_cap
+        # blind mode is strict by default: a source that makes something nearly
+        # identical to the target is as good as a source that makes the target
+        self.similarity_cap = similarity_cap if similarity_cap is not None else (0.85 if blind else None)
         self.web_budget, self.debate_rounds = web_budget, debate_rounds
         self.debate_research_left = debate_research_budget
         self.skeptic_model = skeptic_model
@@ -86,6 +89,20 @@ class Orchestrator:
         await citation_checker.run(ctx, g, clues)
         link_and_emit(ctx, g, [hyp_id])
         return clues
+
+    async def _blind_setup(self, ctx: RunContext, client: MetaClient) -> None:
+        """Blind mode holds back the answer, not just the paper that holds it:
+        every name the target is known by is scrubbed from each request, so an
+        agent cannot recall a published route instead of working one out."""
+        names = [ctx.target.name, ctx.target.query]
+        if ctx.target.cid:
+            names += await synonyms(ctx.target.cid)
+        # longest first, so "paxlovid tablet" goes before "paxlovid"
+        ctx.redact_terms = sorted({n.strip() for n in names if n and len(n.strip()) >= 4},
+                                  key=len, reverse=True)
+        client.redact = ctx.redact
+        ctx.log("planner", f"blind mode: {len(ctx.redact_terms)} names of the target are hidden from every agent, "
+                           "and any source that names it is dropped whole", level="warn")
 
     async def _local_evidence(self, hyp_ids: list[str]) -> None:
         """Evidence that costs nothing to look up: the patent index and the
@@ -156,6 +173,8 @@ class Orchestrator:
                 h["message"] = ctx.target.name
             if not ctx.target:
                 raise RuntimeError("target could not be resolved")
+            if self.blind:
+                await self._blind_setup(ctx, client)
             bus.publish("run.status", {"status": "running", "target": self.query, "blind": self.blind,
                                        "target_info": ctx.target.model_dump()})
 
