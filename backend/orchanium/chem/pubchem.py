@@ -205,3 +205,24 @@ async def vendor_count(cid: int) -> int:
     n = next((len(c.get("Sources", [])) for c in cats if c.get("Category") == "Chemical Vendors"), 0)
     store.cache_set(CACHE_NS + ".vendors", str(cid), n)
     return n
+
+
+async def synonyms(cid: int, limit: int = 40) -> list[str]:
+    """Every name PubChem knows a compound by (cached). Blind mode redacts
+    these, so an agent cannot recall a published route from the name."""
+    store = get_store()
+    if (hit := store.cache_get(CACHE_NS + ".syn", str(cid))) is not None:
+        return hit[:limit]
+    async with _sem():
+        await _limiter.wait()
+        try:
+            async with httpx.AsyncClient() as client:
+                r = await client.get(f"{PUG}/compound/cid/{cid}/synonyms/JSON", timeout=30)
+        except httpx.HTTPError:
+            return []
+    if r.status_code != 200:
+        return []
+    info = (r.json().get("InformationList") or {}).get("Information") or [{}]
+    names = [s for s in (info[0].get("Synonym") or []) if 4 <= len(s) <= 60]
+    store.cache_set(CACHE_NS + ".syn", str(cid), names)
+    return names[:limit]

@@ -1,5 +1,6 @@
 """Offline tests for the v2 core: decomposition, precedent linking, routes,
 route validation and the verdict rule. PubChem lookups are stubbed out."""
+import json
 import asyncio
 
 import pytest
@@ -189,3 +190,41 @@ def test_advanced_intermediates_are_not_treated_as_buyable():
     assert not P.check(None, ethanol_intermediate, vendors=20, target_atoms=15).purchasable
     # a genuine building block stays buyable against the same target
     assert P.check(None, "CC(=O)Cl", vendors=20, target_atoms=15).purchasable
+
+
+def test_blind_mode_drops_the_whole_document_that_knows_the_target():
+    """A paper that makes the target must not supply conditions for anything
+    else either: its other records are just as much a leak."""
+    import asyncio
+    from orchanium.clues import ingest
+    ctx, g = _decomposed(PARACETAMOL)
+    ctx.blind = True
+    src = SourceRef(kind="patent", title="A patent that makes the target",
+                    url="https://patents.google.com/patent/US01234567B2/en")
+    gives_away = Clue(id="a", origin="uspto", reactants=[MolRef(smiles="CC(=O)OC(C)=O")],
+                      products=[MolRef(smiles=PARACETAMOL)], source=src)
+    innocuous = Clue(id="b", origin="uspto", reactants=[MolRef(smiles="CCO")],
+                     products=[MolRef(smiles="CC=O")], source=src.model_copy())
+    elsewhere = Clue(id="c", origin="uspto", reactants=[MolRef(smiles="CCO")], products=[MolRef(smiles="CC=O")],
+                     source=SourceRef(kind="patent", title="Unrelated",
+                                      url="https://patents.google.com/patent/US07654321B2/en"))
+    hyp = next(iter(g.hypotheses())).id
+    for c in (gives_away, innocuous, elsewhere):
+        c.need_id = hyp
+    asyncio.run(ingest(ctx, g, [gives_away, innocuous, elsewhere], "q", "uspto"))
+    kept = {c.id for c in g.clues.values()}
+    assert kept == {"c"}, kept
+
+
+def test_blind_mode_scrubs_every_name_of_the_target_from_requests():
+    from orchanium.meta.client import MetaClient
+    ctx = _ctx(PARACETAMOL)
+    ctx.redact_terms = ["paracetamol", "acetaminophen", "Tylenol"]
+    client = MetaClient.__new__(MetaClient)          # no API key needed for scrubbing
+    client.redact = ctx.redact
+    body = {"input": [{"content": "Make Tylenol (acetaminophen) from phenol"}],
+            "instructions": "The target is paracetamol.", "max_output_tokens": 10}
+    out = client.scrub(body)
+    text = json.dumps(out).lower()
+    assert "tylenol" not in text and "acetaminophen" not in text and "paracetamol" not in text
+    assert out["max_output_tokens"] == 10
