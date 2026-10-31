@@ -25,6 +25,10 @@ CREATE TABLE IF NOT EXISTS cache (
     ns TEXT, key TEXT, value TEXT, created_at REAL,
     PRIMARY KEY (ns, key)
 );
+CREATE TABLE IF NOT EXISTS evidence (
+    id TEXT PRIMARY KEY, origin TEXT, product_smiles TEXT, clue TEXT,
+    citation_status TEXT, run_id TEXT, created_at REAL
+);
 """
 
 
@@ -52,6 +56,13 @@ class Store:
                              (status, json.dumps(summary or {}), run_id))
             self._db.commit()
 
+    def update_summary(self, run_id: str, patch: dict) -> None:
+        with self._lock:
+            row = self._db.execute("SELECT summary FROM runs WHERE id=?", (run_id,)).fetchone()
+            summary = {**(json.loads(row[0]) if row and row[0] else {}), **patch}
+            self._db.execute("UPDATE runs SET summary=? WHERE id=?", (json.dumps(summary), run_id))
+            self._db.commit()
+
     def list_runs(self, limit: int = 50) -> list[dict]:
         rows = self._db.execute(
             "SELECT id, target, created_at, status, summary FROM runs ORDER BY created_at DESC LIMIT ?",
@@ -70,6 +81,27 @@ class Store:
         rows = self._db.execute(
             "SELECT seq, ts, kind, data FROM events WHERE run_id=? ORDER BY seq", (run_id,)).fetchall()
         return [Event(seq=r[0], run_id=run_id, ts=r[1], kind=r[2], data=json.loads(r[3])) for r in rows]
+
+    def last_seq(self, run_id: str) -> int:
+        row = self._db.execute("SELECT MAX(seq) FROM events WHERE run_id=?", (run_id,)).fetchone()
+        return row[0] or 0
+
+    # ---- lasting evidence (see memory.py)
+    def remember(self, rows: list[tuple[str, str, str, str, str | None, str]]) -> None:
+        """rows: (id, origin, product_smiles, clue_json, citation_status, run_id). A clue
+        keeps the run that first found it; only its citation status is refreshed."""
+        with self._lock:
+            self._db.executemany(
+                "INSERT INTO evidence VALUES (?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET "
+                "citation_status=COALESCE(excluded.citation_status, evidence.citation_status)",
+                [(*r, time.time()) for r in rows])
+            self._db.commit()
+
+    def evidence(self) -> list[dict]:
+        rows = self._db.execute(
+            "SELECT id, origin, product_smiles, clue, citation_status, run_id, created_at FROM evidence").fetchall()
+        return [{"id": r[0], "origin": r[1], "product_smiles": r[2], "clue": json.loads(r[3]),
+                 "citation_status": r[4], "run_id": r[5], "created_at": r[6]} for r in rows]
 
     # ---- cache
     def cache_get(self, ns: str, key: str) -> Any | None:

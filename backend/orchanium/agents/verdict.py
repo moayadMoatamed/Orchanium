@@ -5,7 +5,9 @@ the objections the Skeptic sustained. No LLM decides the label.
   Uncertain  any step with no precedent, a route gap, or many weak points
   Feasible   every step has direct/analog precedent and no major objection stands
   Plausible  otherwise (at most one weak step / one major objection)
-A route that was not adversarially reviewed (no debate) is capped at Plausible."""
+A route that was not adversarially reviewed (no debate) is capped at Plausible.
+Lab notes outrank literature: a step done in the user's lab counts as proven,
+and a step that failed there (with no lab success) caps the label at Uncertain."""
 from __future__ import annotations
 
 from typing import Literal
@@ -27,6 +29,8 @@ class StepVerdict(BaseModel):
     grade: str
     precedent_score: float | None
     failure_precedents: int
+    lab_successes: int = 0
+    lab_failures: int = 0
     objections: list[Objection] = Field(default_factory=list)
 
 
@@ -83,7 +87,8 @@ def decide(ctx: RunContext, g: KnowledgeGraph, debate: DebateResult | None,
         h, st = g.reactions[hid], g.grade(hid)
         steps.append(StepVerdict(
             hypothesis_id=hid, grade=st.grade, precedent_score=st.precedent_score,
-            failure_precedents=st.failures, objections=[o for o in sustained if o.hypothesis_id == hid],
+            failure_precedents=st.failures, lab_successes=st.lab_successes, lab_failures=st.lab_failures,
+            objections=[o for o in sustained if o.hypothesis_id == hid],
             reaction=f"{' + '.join(g.molecules[x].name for x in h.reactants)} → {g.molecules[h.product].name}"))
 
     grades = [s.grade for s in steps]
@@ -110,13 +115,20 @@ def decide(ctx: RunContext, g: KnowledgeGraph, debate: DebateResult | None,
     else:
         label = "Plausible"
         reasons.append(f"{weak} weakly-supported step(s), {major} standing major objection(s)")
+    lab_failed = [i for i, s in enumerate(steps, 1) if s.lab_failures and not s.lab_successes]
+    lab_done = [i for i, s in enumerate(steps, 1) if s.lab_successes]
+    if lab_failed and label in ("Feasible", "Plausible"):
+        label = "Uncertain"
+    reasons += [f"step {i} failed in your lab; it needs different conditions or a different step" for i in lab_failed]
+    reasons += [f"step {i} was done in your lab" for i in lab_done]
     if label == "Feasible" and debate is None:
         label = "Plausible"
         reasons.append("capped at Plausible: the route was not reviewed by the Skeptic"
                        + (f" ({review_note})" if review_note else ""))
 
     scores = [s.precedent_score or 0.1 for s in steps] or [0.0]
-    conf = sum(scores) / len(scores) - 0.08 * major - 0.2 * len(fatal_evidenced) - 0.1 * len(gaps)
+    conf = (sum(scores) / len(scores) - 0.08 * major - 0.2 * len(fatal_evidenced) - 0.1 * len(gaps)
+            - 0.25 * len(lab_failed))
     conf = round(max(0.02, min(0.97, conf)), 2)
     v = Verdict(label=label, confidence=conf, reasons=reasons, route=route, route_source=source,
                 steps=steps, gaps=gaps)

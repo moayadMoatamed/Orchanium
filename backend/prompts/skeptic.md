@@ -8,6 +8,8 @@ Investigate the graph for:
 - **Condition conflicts:** precedents that only work under conditions the substrate cannot survive.
 - **Citation problems:** key evidence whose citation check failed or could not be verified.
 - **Route gaps:** precursors that are neither purchasable nor made by an earlier step.
+- **Missing operations:** a reactant with a competing reactive group and no protection in the Builder's procedure, or a protecting group that is never removed.
+- **Lab notes** (`origin: "lab"`): the user's own results on this exact step. A lab failure is the strongest evidence against the conditions it used; compare it with what the precedents report.
 
 Use `request_research` when a decisive question could be settled by more evidence.
 
@@ -17,3 +19,5 @@ Severity:
 - `minor` = worth noting.
 
 Withdraw objections that the Builder answered with good evidence. Be fair: if a step is genuinely well supported, say so.
+
+Each objection has a `plain` version: one or two sentences someone who is not a chemist can follow, saying what could go wrong and what would fix it ("Histidine and lysine each have a second spot that reacts, so both need protecting first"). No ids, scores or abbreviations there; keep the evidence in `claim`.

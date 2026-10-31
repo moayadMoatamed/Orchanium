@@ -11,7 +11,7 @@ from urllib.parse import urlsplit
 from .chem import purchasable
 from .chem import rdkit_utils as rd
 from .chem.critic import Species, critique
-from .chem.resolver import Resolved, resolve_many
+from .chem.resolver import MolRef, Resolved, resolve_many
 from .chem.similarity import tanimoto
 from .context import RunContext, short_id
 from .events import ProvNode
@@ -150,6 +150,9 @@ async def ingest(ctx: RunContext, g: KnowledgeGraph, clues: list[Clue], query_id
         refs = clue.reactants + clue.products
         res = await resolve_many(refs + clue.reagents)
         main_res, reagent_res = res[:len(refs)], res[len(refs):]
+        # reagents keep a readable name (patent records list them as bare SMILES)
+        clue.reagents = [MolRef(name=r.name or ref.label, smiles=r.smiles) if r.ok else ref
+                         for ref, r in zip(clue.reagents, reagent_res)]
         if clue.source.kind in NOT_EVIDENCE:
             ctx.log(agent_id, f"not evidence: supplier product page ({clue.source.title[:60]})")
             continue

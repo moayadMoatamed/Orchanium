@@ -12,6 +12,7 @@ export const C = {
   verified: "#2E7D4F",
   rejected: "#B4402F",
   warning: "#A86A00",
+  lab: "#6A3E9C",
 } as const;
 
 /** Verdict for the whole route, with what it means for the reader. */
@@ -54,6 +55,27 @@ export const TONE: Record<string, { fg: string; bg: string; border: string }> = 
   bad: { fg: C.rejected, bg: "rgba(180,64,47,.07)", border: "rgba(180,64,47,.35)" },
   neutral: { fg: C.muted, bg: "transparent", border: C.hairline },
   live: { fg: C.accent, bg: "rgba(31,78,140,.07)", border: "rgba(31,78,140,.35)" },
+  /** the user's own lab results: never styled like literature */
+  lab: { fg: C.lab, bg: "rgba(106,62,156,.07)", border: "rgba(106,62,156,.35)" },
+};
+
+/** Where a condition value came from. */
+export const BASIS: Record<string, { word: string; tone: keyof typeof TONE; hint: string }> = {
+  lab: { word: "Your lab", tone: "lab", hint: "From your own lab note on this step" },
+  reported: { word: "This reaction", tone: "good", hint: "Reported for this exact reaction" },
+  analog: { word: "Similar reaction", tone: "neutral", hint: "Reported for a closely related reaction" },
+  suggested: { word: "Suggested", tone: "live", hint: "Not reported; the Builder's recommendation from similar reactions" },
+  missing: { word: "Not found", tone: "neutral", hint: "No source reported it" },
+};
+
+/** The kinds of lab operation a step is made of. */
+export const OPERATION: Record<string, { label: string; plain: string }> = {
+  protect: { label: "Protect", plain: "Cap a group that would otherwise react" },
+  activate: { label: "Activate", plain: "Make a partner reactive enough" },
+  react: { label: "Main reaction", plain: "Form the new bond" },
+  deprotect: { label: "Deprotect", plain: "Remove the cap again" },
+  workup: { label: "Work up", plain: "Stop the reaction and separate the crude product" },
+  purify: { label: "Purify", plain: "Isolate the clean product" },
 };
 
 /** Status of a single provenance node / check. */
@@ -108,6 +130,8 @@ export const AGENT_LABEL: Record<string, string> = {
   planner: "Planner",
   decomposer: "Decomposer",
   uspto: "Patent index",
+  memory: "Knowledge graph",
+  lab: "Your lab",
   citation_checker: "Citation checker",
   critic: "Chemistry critic",
   resolver: "Structure resolver",

@@ -1,60 +1,70 @@
 import type { ReactNode } from "react";
 import {
-  ArrowDown, ArrowRight, BookOpen, CircleAlert, Copy, Download, FileCheck2, FlaskConical, Library,
-  Microscope, PackageCheck, RotateCcw, Scale, ShieldCheck, Target, TriangleAlert,
+  ArrowRight, BookOpen, BrainCircuit, CircleAlert, Copy, Download, FileCheck2, FlaskConical, Library,
+  Microscope, PackageCheck, RotateCcw, Scale, ShieldAlert, ShieldCheck, Target, TriangleAlert,
 } from "lucide-react";
-import { failureOf, routeStory, sourceCount, targetName, useRun } from "../state/runStore";
-import { firstClause, firstSentence, plural, readable } from "../textutil";
-import {
-  GRADE, TONE, VERDICT, confidenceWords, reactionPlain, type Grade, type VerdictLabel,
-} from "../tokens";
-import { Card, GradeBadge, MoreText, Section } from "./primitives";
-import { Structure } from "./Structure";
+import { failureOf, routeStory, stepCount, targetName, useRun } from "../state/runStore";
+import type { Revision } from "../state/types";
+import { firstSentence, plural, readable } from "../textutil";
+import { TONE, VERDICT, confidenceWords, type VerdictLabel } from "../tokens";
+import { Card, MoreText, Section } from "./primitives";
+import { MoleculeChip, StepCard, stepTitle } from "./StepCard";
 
 type S = ReturnType<typeof useRun.getState>;
 
-function headline(label: string, steps: number, buyable: boolean) {
-  if (!steps) return "No route could be assembled.";
-  const n = plural(steps, "step");
+/** "an 8-step", "an 11-step", "a 3-step": numbers read aloud starting with a vowel sound. */
+const article = (n: number) => (/^8/.test(String(n)) || n === 11 || n === 18 ? "An" : "A");
+
+function headline(label: string, n: number, buyable: boolean) {
+  if (!n) return "No route could be assembled.";
+  const steps = plural(n, "step");
   const from = buyable ? " from chemicals you can buy" : "";
   switch (label) {
     case "Feasible":
-      return `Can be made in ${n}${from}.`;
+      return `Can be made in ${steps}${from}.`;
     case "Plausible":
-      return `Probably makeable in ${n}${from}.`;
+      return `Probably makeable in ${steps}${from}.`;
     case "Uncertain":
-      return `A ${steps}-step route exists, but part of it is unproven.`;
+      return `${article(n)} ${n}-step route exists, but part of it is unproven.`;
     default:
-      return `The evidence argues against this ${steps}-step route.`;
+      return `The evidence argues against this ${n}-step route.`;
   }
 }
 
-function conditionsOf(s: S, stepId: string): string | null {
-  const step = s.report?.data.steps.find((x) => x.hypothesis_id === stepId);
-  const best = step?.precedents?.find((p) => p.outcome === "success");
-  if (!best) return null;
-  const c = best.conditions ?? {};
-  const pretty = (v: unknown) => String(v).replace(/_/g, " ");
-  const parts = [c.temperature_c != null ? `${c.temperature_c} °C` : null, c.solvent, c.catalyst, c.time]
-    .filter(Boolean).map(pretty);
-  if (parts.length) return parts.join(" · ");
-  return c.text ? pretty(c.text) : null;
+/** How the step count breaks down, when protection makes it differ from
+ *  the number of bond-forming reactions. */
+function countHint(c: ReturnType<typeof stepCount>, buy: number) {
+  const base = `starting from ${plural(buy, "chemical")} you can buy`;
+  if (c.total === c.reactions) return `${plural(c.reactions, "step")}, ${base}.`;
+  return `${plural(c.reactions, "bond-forming reaction")} plus ${plural(c.protection, "protection or deprotection step")}, ${base}.`;
 }
 
-function MoleculeChip({ s, id, tag }: { s: S; id: string; tag: string }) {
-  const m = s.molecules[id];
-  if (!m) return null;
+function Revisions({ revisions }: { revisions: Revision[] }) {
+  const latest = revisions[revisions.length - 1];
   return (
-    <button
-      onClick={() => { s.select({ molecule: id, step: null }); s.setTab("graph"); }}
-      className="group flex w-[156px] flex-col items-center rounded-card border border-hairline bg-surface p-2
-                 text-center transition-colors hover:border-ink/25"
-      title="Show in the graph"
-    >
-      <Structure smiles={m.smiles} width={136} height={92} framed={false} />
-      <span className="mt-1 line-clamp-2 text-[12.5px] font-medium leading-snug">{m.name}</span>
-      <span className="text-[11.5px] text-muted">{tag}</span>
-    </button>
+    <Card className="mt-6 p-4" tone="lab">
+      <div className="flex items-center gap-1.5 text-[12px] font-semibold uppercase tracking-[0.08em]"
+           style={{ color: TONE.lab.fg }}>
+        <FlaskConical size={13} strokeWidth={2} aria-hidden />
+        Revised by {plural(revisions.length, "lab note")}
+      </div>
+      <div className="mt-2 flex items-center gap-2 text-[14px]">
+        <span className="text-muted">Before your notes: {revisions[0].before.label}</span>
+        <ArrowRight size={14} className="text-muted" aria-hidden />
+        <span className="font-medium">Now: {latest.after.label}</span>
+      </div>
+      <ul className="mt-2 space-y-1 text-[13.5px] leading-relaxed">
+        {latest.changes.map((c, i) => <li key={i} className="flex gap-2"><span className="text-muted">·</span>{c}</li>)}
+      </ul>
+      {revisions.length > 1 && (
+        <details className="mt-2 text-[12.5px] text-muted">
+          <summary className="cursor-pointer">Earlier notes</summary>
+          {revisions.slice(0, -1).reverse().map((r) => (
+            <div key={r.note_id} className="mt-1.5">{r.before.label} → {r.after.label}: {r.changes.join(" ")}</div>
+          ))}
+        </details>
+      )}
+    </Card>
   );
 }
 
@@ -91,6 +101,7 @@ function Intro() {
     { icon: Microscope, t: "Structures come from databases", d: "Names are looked up in PubChem; the AI never invents a molecule." },
     { icon: Scale, t: "Verdicts are computed", d: "Two agents argue, but a fixed rule over the evidence decides the label." },
     { icon: BookOpen, t: "Every claim has a source", d: "Each step links back to the patents and papers behind it." },
+    { icon: BrainCircuit, t: "It learns as you use it", d: "Evidence and your lab results are kept, so each run starts knowing more." },
   ];
   return (
     <div className="mx-auto max-w-[940px] px-6 py-16">
@@ -103,7 +114,7 @@ function Intro() {
         finds published reactions that back each step up, checks the chemistry, and has two agents
         argue over the evidence before it answers.
       </p>
-      <div className="mt-8 grid max-w-3xl gap-4 sm:grid-cols-3">
+      <div className="mt-8 grid max-w-4xl gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {points.map(({ icon: Icon, t, d }) => (
           <Card key={t} className="p-4">
             <Icon size={18} strokeWidth={1.6} className="text-accent" aria-hidden />
@@ -164,6 +175,13 @@ export function ResultView({ onRetry }: { onRetry: (target: string) => void }) {
 
   const objections = data?.debate?.sustained_objections ?? [];
   const thin = steps.filter((x) => x.grade === "weak" || x.grade === "none");
+  const unguarded = steps.filter((x) => x.detail?.competing_groups && !x.detail.procedure?.some((o) => o.kind === "protect"));
+  const count = stepCount(steps);
+  const labFailed = steps.filter((x) => (x.detail?.lab_failures ?? 0) > 0 && !(x.detail?.lab_successes ?? 0));
+  // lab notes need the run's saved graph, which runs with conditions records have
+  const finished = s.status === "done" && !!data?.steps[0]?.conditions;
+  const recalled = data?.evidence?.recalled ?? 0;
+  const labNotes = steps.reduce((n, x) => n + (x.detail?.lab_notes?.length ?? 0), 0);
   const sources = new Set(
     Object.values(s.prov).filter((n) => n.node_type === "source").map((n) => n.details?.url ?? n.id),
   ).size;
@@ -178,10 +196,12 @@ export function ResultView({ onRetry }: { onRetry: (target: string) => void }) {
       <div className="mt-3 grid gap-6 md:grid-cols-[1fr_260px]">
         <div>
           <h1 className="text-[34px] font-semibold leading-[1.14] tracking-[-0.022em]">
-            {headline(label, steps.length, buy.length > 0)}
+            {headline(label, count.total, buy.length > 0)}
           </h1>
           <p className="mt-3 text-[14px] leading-relaxed text-muted">
-            {meta.note}
+            {labFailed.length
+              ? `Step ${labFailed.map((x) => x.index).join(" and ")} failed in your lab, so it needs different conditions or a different approach.`
+              : meta.note}
             {s.blind && " Blind mode was on: every source that mentions this molecule was hidden, so the route was worked out, not looked up."}
           </p>
           <div className="mt-5 flex gap-2">
@@ -201,7 +221,8 @@ export function ResultView({ onRetry }: { onRetry: (target: string) => void }) {
             <button
               className="btn-secondary"
               onClick={() => navigator.clipboard.writeText(
-                steps.map((x) => `${x.index}. ${x.classes[0] ?? "Step"}: ${x.reaction}`).join("\n"),
+                steps.map((x) => [`${x.index}. ${stepTitle(s, x)}: ${x.reaction}`,
+                  ...(x.detail?.procedure ?? []).map((o, i) => `   ${x.index}.${i + 1} ${o.action}`)].join("\n")).join("\n"),
               )}
             >
               <Copy size={15} strokeWidth={1.8} aria-hidden /> Copy route
@@ -232,11 +253,13 @@ export function ResultView({ onRetry }: { onRetry: (target: string) => void }) {
         </Card>
       </div>
 
+      {s.revisions.length > 0 && <Revisions revisions={s.revisions} />}
+
       {/* ----------------------------------------------------------- route */}
       <Section
         className="mt-12"
         title="How to make it"
-        hint={`${plural(steps.length, "step")}, starting from ${plural(buy.length, "chemical")} you can buy.`}
+        hint={countHint(count, buy.length)}
       >
         <div className="relative">
           {/* start */}
@@ -246,71 +269,15 @@ export function ResultView({ onRetry }: { onRetry: (target: string) => void }) {
             </div>
           </TimelineRow>
 
-          {steps.map((step) => {
-            const g = GRADE[step.grade as Grade] ?? GRADE.none;
-            const cond = conditionsOf(s, step.id);
-            const isLast = step.product === target;
-            const newInputs = step.reactants.filter((r) => buy.includes(r) && step.index > 1);
-            return (
-              <TimelineRow
-                key={step.id}
-                icon={<span className="text-[12.5px] font-semibold tabular-nums">{step.index}</span>}
-                title={`Step ${step.index}`}
-              >
-                <Card className="p-4">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="text-[15px] font-semibold">{step.classes[0] ?? "Chemical step"}</div>
-                      <div className="mt-0.5 text-[13.5px] text-muted">{reactionPlain(step.classes[0])}</div>
-                    </div>
-                    <GradeBadge grade={step.grade} sources={sourceCount(s, step.id)} />
-                  </div>
-
-                  {newInputs.length > 0 && (
-                    <div className="mt-3 text-[13px]">
-                      <span className="text-muted">Add </span>
-                      {newInputs.map((r) => s.molecules[r]?.name ?? r).join(", ")}
-                    </div>
-                  )}
-
-                  <dl className="mt-3 grid gap-x-6 gap-y-2 text-[13px] sm:grid-cols-[110px_1fr]">
-                    <dt className="text-muted">Conditions</dt>
-                    <dd>{cond ?? <span className="text-muted">not reported in the sources</span>}</dd>
-                    <dt className="text-muted">Evidence</dt>
-                    <dd>{g.plain}</dd>
-                  </dl>
-
-                  {step.objections.length > 0 && (
-                    <button
-                      onClick={() => { s.select({ step: step.id }); s.setTab("debate"); }}
-                      className="mt-3 flex w-full items-start gap-2 rounded-chip px-3 py-2 text-left text-[13px]
-                                 transition-colors hover:brightness-95"
-                      style={{ background: TONE.warn.bg, color: TONE.warn.fg }}
-                    >
-                      <TriangleAlert size={15} strokeWidth={1.8} className="mt-[2px] shrink-0" aria-hidden />
-                      <span>Skeptic: {firstClause(step.objections[0].claim, 150)}</span>
-                    </button>
-                  )}
-
-                  <div className="mt-3 flex justify-end">
-                    <button
-                      className="inline-flex items-center gap-1 text-[12.5px] text-muted hover:text-ink"
-                      onClick={() => { s.select({ step: step.id, node: null }); s.setTab("verification"); }}
-                    >
-                      Why we trust this step <ArrowRight size={13} strokeWidth={2} aria-hidden />
-                    </button>
-                  </div>
-                </Card>
-
-                {step.product && (
-                  <div className="mt-3 flex items-center gap-3">
-                    <ArrowDown size={15} strokeWidth={1.8} className="text-muted" aria-hidden />
-                    <MoleculeChip s={s} id={step.product} tag={isLast ? "the target" : "made in this step"} />
-                  </div>
-                )}
-              </TimelineRow>
-            );
-          })}
+          {steps.map((step) => (
+            <TimelineRow
+              key={step.id}
+              icon={<span className="text-[12.5px] font-semibold tabular-nums">{step.index}</span>}
+              title={`Step ${step.index}`}
+            >
+              <StepCard s={s} step={step} buy={buy} target={target} finished={finished} />
+            </TimelineRow>
+          ))}
 
           <TimelineRow
             icon={<Target size={16} strokeWidth={1.8} aria-hidden />}
@@ -327,22 +294,43 @@ export function ResultView({ onRetry }: { onRetry: (target: string) => void }) {
         hint="What the Skeptic could not dismiss, and steps with thin evidence."
       >
         <Card className="divide-y divide-hairline">
-          {objections.map((o) => (
-            <div key={o.id} className="flex gap-3 px-4 py-3.5 text-[13.5px] leading-relaxed">
-              <TriangleAlert size={16} strokeWidth={1.8} className="mt-[3px] shrink-0" style={{ color: TONE.warn.fg }} aria-hidden />
-              <span><MoreText short={firstSentence(o.claim)} full={readable(o.claim, 2000)} /></span>
+          {objections.map((o) => {
+            const at = steps.find((x) => x.id === o.hypothesis_id);
+            return (
+              <div key={o.id} className="flex gap-3 px-4 py-3.5 text-[13.5px] leading-relaxed">
+                <TriangleAlert size={16} strokeWidth={1.8} className="mt-[3px] shrink-0" style={{ color: TONE.warn.fg }} aria-hidden />
+                <div className="min-w-0">
+                  {at && <span className="text-muted">Step {at.index}: </span>}
+                  {o.plain ? readable(o.plain, 400) : <MoreText short={firstSentence(o.claim)} full={readable(o.claim, 2000)} />}
+                  {o.plain && (
+                    <details className="mt-1 text-[12.5px] text-muted">
+                      <summary className="cursor-pointer">Technical detail</summary>
+                      <div className="mt-1">{readable(o.claim, 2000)}</div>
+                    </details>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+          {unguarded.map((x) => (
+            <div key={`fg-${x.id}`} className="flex gap-3 px-4 py-3.5 text-[13.5px] leading-relaxed">
+              <ShieldAlert size={16} strokeWidth={1.8} className="mt-[3px] shrink-0" style={{ color: TONE.warn.fg }} aria-hidden />
+              <span>
+                Step {x.index}: a reactant has a second group that could react in the wrong place, and no
+                protection is planned. Expect side products, or protect it first.
+              </span>
             </div>
           ))}
           {thin.map((x) => (
             <div key={x.id} className="flex gap-3 px-4 py-3.5 text-[13.5px] leading-relaxed">
               <FlaskConical size={16} strokeWidth={1.8} className="mt-[3px] shrink-0" style={{ color: TONE.warn.fg }} aria-hidden />
               <span>
-                Step {x.index} ({x.classes[0] ?? "step"}) has {x.grade === "none" ? "no published precedent" : "only thin precedent"}.
+                Step {x.index} ({stepTitle(s, x)}) has {x.grade === "none" ? "no published precedent" : "only thin precedent"}.
                 Run it at small scale first.
               </span>
             </div>
           ))}
-          {!objections.length && !thin.length && (
+          {!objections.length && !thin.length && !unguarded.length && (
             <div className="flex gap-3 px-4 py-3.5 text-[13.5px] text-muted">
               <ShieldCheck size={16} strokeWidth={1.8} className="mt-[2px] shrink-0" style={{ color: TONE.good.fg }} aria-hidden />
               No standing objections. Every step is backed by published work.
@@ -357,6 +345,8 @@ export function ResultView({ onRetry }: { onRetry: (target: string) => void }) {
           <Stat icon={Library} value={sources} label="sources read" />
           <Stat icon={BookOpen} value={patents} label="patent reactions matched" />
           <Stat icon={FileCheck2} value={verified} label="quotes checked against the source" />
+          {recalled > 0 && <Stat icon={BrainCircuit} value={recalled} label="clues remembered from earlier runs" />}
+          {labNotes > 0 && <Stat icon={FlaskConical} value={labNotes} label="results from your lab" />}
         </div>
         <div className="mt-3 text-[12.5px] text-muted">
           Run cost ${s.cost.usd.toFixed(2)} · {plural(s.cost.searches, "web search", "web searches")}

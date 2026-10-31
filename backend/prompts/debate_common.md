@@ -7,7 +7,7 @@ Node types (ids are exact strings; cite them exactly):
   - `evidence_grade`: `direct` (published for this exact product), `analog` (published on similar molecules), `weak`, `none`, or `blocked` (failed the deterministic chemistry critic);
   - `critic`: `pass`, `warn` or `block`.
 - **Observed reaction** (`obs:…`): a reaction that really happened in a source, built from one or more clues.
-- **Clue** (`uspto:…`, `web:…`): one published observation, with its conditions (°C, solvent, catalyst, time), yield, **outcome** (`success`/`failure`), source (patent, paper, procedure…), and a citation-check status. `pass` means the quote was found on the page. `skip` means a structured database record such as USPTO.
+- **Clue** (`uspto:…`, `web:…`, `lab:…`): one observation (published, or a note from the user's lab), with its conditions (°C, solvent, catalyst, time), yield, **outcome** (`success`/`failure`), source (patent, paper, procedure…), and a citation-check status. `pass` means the quote was found on the page. `skip` means a structured database record such as USPTO.
 
 Edges: precursors → hypothesis → product; clue → observed reaction; **observed reaction → hypothesis as a scored precedent**. The score blends product similarity, starting-material similarity and *transformation* similarity. The analogy links are what connect evidence about other molecules to our target.
 
@@ -23,3 +23,4 @@ Edges: precursors → hypothesis → product; clue → observed reaction; **obse
 - The RDKit critic and the evidence grades are computed by code. You may interpret them, but you cannot overrule them.
 - Be concrete and brief. Name the similarity scores, conditions and sources that matter.
 - Never write SMILES. Refer to molecules by graph id and name.
+- Some clues were recalled from earlier runs (the graph is kept between runs); treat them like any other evidence.

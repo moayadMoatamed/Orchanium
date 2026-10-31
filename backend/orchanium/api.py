@@ -1,5 +1,5 @@
 """FastAPI surface: start runs, stream their events over SSE, replay stored
-runs, and serve RDKit depictions. The UI is a pure function of the event
+runs, take lab notes, and serve RDKit depictions. The UI is a pure function of the event
 stream, so live and replay render identically."""
 from __future__ import annotations
 
@@ -13,8 +13,10 @@ from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
 from .chem import rdkit_utils as rd
+from . import memory
 from .config import settings
 from .events import Event
+from .lab import LabNote, NoteRejected, add_note
 from .orchestrator import Orchestrator, live_bus
 from .store import get_store
 
@@ -120,6 +122,23 @@ async def stream(
         yield "event: end\ndata: {}\n\n"
 
     return StreamingResponse(replay(), media_type="text/event-stream", headers=SSE_HEADERS)
+
+
+@app.post("/api/runs/{run_id}/notes")
+async def add_lab_note(run_id: str, note: LabNote) -> dict:
+    """A chemist's result on one route step. It revises this run's verdict by
+    the same rule and joins the lasting knowledge graph for later runs."""
+    try:
+        events = await add_note(run_id, note)
+    except NoteRejected as e:
+        raise HTTPException(409, str(e)) from e
+    return {"events": [e.model_dump() for e in events]}
+
+
+@app.get("/api/knowledge")
+async def knowledge() -> dict:
+    """Size of the lasting knowledge graph."""
+    return await asyncio.to_thread(memory.stats)
 
 
 @app.get("/api/depict")

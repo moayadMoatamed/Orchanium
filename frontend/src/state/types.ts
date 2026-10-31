@@ -59,7 +59,72 @@ export interface StepVerdict {
   grade: string;
   precedent_score: number | null;
   failure_precedents: number;
-  objections: { id: string; severity: string; claim: string; cited_ids: string[] }[];
+  lab_successes?: number;
+  lab_failures?: number;
+  objections: Objection[];
+}
+
+export interface Objection {
+  id: string;
+  hypothesis_id?: string;
+  severity: string;
+  plain?: string;
+  claim: string;
+  cited_ids?: string[];
+}
+
+export type Basis = "lab" | "reported" | "analog" | "suggested" | "missing";
+
+export interface ConditionField {
+  value: string | null;
+  basis: Basis;
+  source?: string;
+  url?: string | null;
+  n?: number;
+  range?: string;
+}
+
+export interface Operation {
+  kind: "protect" | "activate" | "react" | "deprotect" | "workup" | "purify";
+  action: string;
+  reagents: string[];
+  why: string;
+  responds_to: string | null;
+  responds_to_text: string | null;
+  backed: boolean;
+}
+
+export interface LabNoteRecord {
+  id: string;
+  outcome: "success" | "failure";
+  yield_pct: number | null;
+  conditions: Record<string, any>;
+  reagents: string[];
+  observations: string | null;
+  title: string;
+}
+
+export interface Revision {
+  note_id: string;
+  step_id: string;
+  outcome: "success" | "failure";
+  changes: string[];
+  at: number;
+  before: { label: string; confidence: number };
+  after: { label: string; confidence: number };
+}
+
+export interface LabNoteInput {
+  step_id: string;
+  outcome: "success" | "failure";
+  yield_pct?: number | null;
+  reagents?: string[];
+  solvent?: string | null;
+  temperature_c?: number | null;
+  time?: string | null;
+  scale?: string | null;
+  observations?: string | null;
+  notes?: string | null;
 }
 
 export interface RouteVerdict {
@@ -83,9 +148,17 @@ export interface ReportData {
     grade: string;
     precedent_score: number | null;
     failure_precedents: number;
-    objections: { id: string; severity: string; claim: string }[];
+    lab_successes?: number;
+    lab_failures?: number;
+    objections: Objection[];
     transformation: string[];
     critic: Record<string, string>;
+    name?: string | null;
+    plain?: string | null;
+    procedure?: Operation[];
+    conditions?: Record<string, ConditionField>;
+    competing_groups?: string | null;
+    lab_notes?: LabNoteRecord[];
     precedents: {
       score: number;
       grade: string;
@@ -97,16 +170,18 @@ export interface ReportData {
       yield_pct: number | null;
       source: string;
       url: string | null;
+      origin?: string;
+      recalled_from?: string | null;
       citation_check: string | null;
     }[];
   }[];
   debate: {
     builder: string[];
     skeptic: string[];
-    sustained_objections: { id: string; hypothesis_id: string; severity: string; claim: string; cited_ids: string[] }[];
+    sustained_objections: Objection[];
     struck_citations: string[];
   } | null;
-  evidence: { clues_by_source: Record<string, number>; citation_checks: Record<string, number> };
+  evidence: { clues_by_source: Record<string, number>; recalled?: number; citation_checks: Record<string, number> };
 }
 
 export interface TargetInfo {

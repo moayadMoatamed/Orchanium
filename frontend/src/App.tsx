@@ -1,4 +1,4 @@
-import { FileSearch, History, MessagesSquare, Network, Play, ShieldCheck, type LucideIcon } from "lucide-react";
+import { BrainCircuit, FileSearch, History, MessagesSquare, Network, Play, ShieldCheck, type LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { ActivityDock } from "./components/ActivityDock";
 import { DebateView } from "./components/DebateView";
@@ -20,13 +20,15 @@ export default function App() {
   const s = useRun();
   const disconnect = useRef<(() => void) | null>(null);
   const [recent, setRecent] = useState<{ id: string; target: string; status: string }[]>([]);
+  const [known, setKnown] = useState<{ clues: number; molecules: number; runs: number; by_origin: Record<string, number> } | null>(null);
 
   useEffect(() => {
     fetch("/api/runs?limit=8")
       .then((r) => r.json())
       .then((rows) => setRecent(rows.map((r: any) => ({ id: r.id, target: r.target, status: r.status }))))
       .catch(() => {});
-  }, [s.status]);
+    fetch("/api/knowledge").then((r) => r.json()).then(setKnown).catch(() => {});
+  }, [s.status, s.revisions.length]);
 
   async function start(target: string, opts: { blind: boolean }) {
     disconnect.current?.();
@@ -54,7 +56,7 @@ export default function App() {
 
       <div className="flex items-center gap-1 border-b border-hairline px-5 py-2.5">
         {TABS.map(({ id, label, icon: Icon }) => (
-          <button key={id} onClick={() => s.setTab(id)} className={`tab inline-flex items-center gap-1.5 ${s.tab === id ? "tab-active" : ""}`}>
+          <button key={id} onClick={() => s.setTab(id)} className={`tab inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap ${s.tab === id ? "tab-active" : ""}`}>
             <Icon size={15} strokeWidth={1.8} aria-hidden />
             {label}
           </button>
@@ -62,6 +64,17 @@ export default function App() {
 
         <div className="ml-auto flex items-center gap-3 text-[12.5px] text-muted">
           {s.blind && <span title="Evidence mentioning the target was hidden">blind mode</span>}
+          {known && known.clues > 0 && (
+            <span
+              className="hidden items-center gap-1.5 whitespace-nowrap md:inline-flex"
+              title={`Evidence kept from ${known.runs} earlier run(s) and your lab notes, covering ${known.molecules} molecules. `
+                + "Every new run starts with whatever bears on its steps."}
+            >
+              <BrainCircuit size={14} strokeWidth={1.8} aria-hidden />
+              {known.clues} clues known
+              {known.by_origin.lab ? ` · ${known.by_origin.lab} from your lab` : ""}
+            </span>
+          )}
           {recent.length > 0 && (
             <label className="flex items-center gap-1.5">
               <History size={14} strokeWidth={1.8} aria-hidden />

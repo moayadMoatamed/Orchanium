@@ -1,9 +1,10 @@
-import { ChevronDown, ExternalLink, FileText, Globe, SearchCheck } from "lucide-react";
+import { BrainCircuit, ChevronDown, ExternalLink, FileText, FlaskConical, Globe, SearchCheck } from "lucide-react";
 import { useMemo, useState } from "react";
 import { chainForStep, routeSteps, useRun } from "../state/runStore";
 import type { ProvNode } from "../state/types";
 import { plural, readable } from "../textutil";
-import { GRADE, reactionPlain, type Grade } from "../tokens";
+import { GRADE, TONE, reactionPlain, type Grade } from "../tokens";
+import { stepTitle } from "./StepCard";
 import { Card, Empty, GradeBadge, Pill, Section, StatusIcon } from "./primitives";
 
 type S = ReturnType<typeof useRun.getState>;
@@ -23,11 +24,14 @@ const isPatent = (n: ProvNode) => {
   const k = n.details?.kind ?? n.details?.source_type;
   return k === "database" || k === "patent";
 };
+const isLab = (n: ProvNode) => n.details?.kind === "lab" || n.details?.origin === "lab";
 
 function checksFor(nodes: ProvNode[]): Check[] {
   const of = (...types: string[]) => nodes.filter((n) => types.includes(n.node_type));
-  const sources = of("source");
-  const reported = of("extraction");
+  const sources = of("source").filter((n) => !isLab(n));
+  const reported = of("extraction").filter((n) => !isLab(n));
+  const lab = of("extraction").filter(isLab);
+  const labOk = lab.filter((n) => n.details?.outcome === "success").length;
   const citations = of("citation");
   const structures = of("resolution", "vision");
   const precedents = of("precedent");
@@ -47,7 +51,18 @@ function checksFor(nodes: ProvNode[]): Check[] {
   const quotedOk = quoted.filter((n) => n.status === "pass").length;
   const checkWarn = checks.filter((n) => n.status === "warn" || n.status === "fail");
 
+  const labCheck: Check[] = lab.length ? [{
+    key: "lab",
+    question: "Has it been tried in your lab?",
+    status: labOk ? "pass" : "fail",
+    answer: labOk
+      ? `Yes: ${plural(labOk, "note")} from your lab say${labOk === 1 ? "s" : ""} it worked${lab.length > labOk ? `, after ${plural(lab.length - labOk, "failed attempt")}` : ""}. That outranks any published evidence.`
+      : `Yes, and it did not work (${plural(lab.length, "attempt")}). The verdict treats this as the strongest evidence against the conditions used.`,
+    nodes: [...of("source").filter(isLab), ...lab],
+  }] : [];
+
   return [
+    ...labCheck,
     {
       key: "published",
       question: "Has this reaction been published?",
@@ -179,7 +194,9 @@ function SourceList({ s, nodes }: { s: S; nodes: ProvNode[] }) {
     <Card className="divide-y divide-hairline">
       {sources.map((n) => {
         const cite = citations.find((c) => c.details?.url && c.details.url === n.details?.url);
-        const Icon = isPatent(n) ? FileText : Globe;
+        const Icon = isLab(n) ? FlaskConical : isPatent(n) ? FileText : Globe;
+        const clue = nodes.find((e) => e.node_type === "extraction" && e.parent_ids.includes(n.id));
+        const remembered = !!clue?.details?.recalled_from;
         return (
           <a
             key={n.id}
@@ -192,8 +209,15 @@ function SourceList({ s, nodes }: { s: S; nodes: ProvNode[] }) {
             <span className="min-w-0 flex-1 truncate" title={n.details?.title}>
               {n.details?.title ?? readable(n.summary, 120)}
             </span>
-            <span className="hidden shrink-0 text-[12px] text-muted sm:inline">
-              {isPatent(n) ? "patent" : "web"}
+            {remembered && (
+              <span className="hidden shrink-0 items-center gap-1 text-[12px] text-muted sm:inline-flex"
+                    title="Found by an earlier run and kept in the knowledge graph">
+                <BrainCircuit size={13} strokeWidth={1.7} aria-hidden /> remembered
+              </span>
+            )}
+            <span className="hidden shrink-0 text-[12px] sm:inline"
+                  style={{ color: isLab(n) ? TONE.lab.fg : undefined }}>
+              {isLab(n) ? "your lab" : isPatent(n) ? "patent" : "web"}
             </span>
             {cite?.status === "pass" && <Pill tone="good">quote confirmed</Pill>}
           </a>
@@ -241,9 +265,9 @@ export function VerificationView() {
         </div>
 
         <h1 className="mt-5 text-[28px] font-semibold leading-tight tracking-[-0.02em]">
-          {step.classes[0] ?? "Chemical step"}
+          {stepTitle(s, step)}
         </h1>
-        <p className="mt-1 text-[14px] text-muted">{reactionPlain(step.classes[0])}.</p>
+        <p className="mt-1 text-[14px] text-muted">{step.classes[0] ?? "Chemical step"} · {reactionPlain(step.classes[0]).toLowerCase()}.</p>
         <p className="mt-3 text-[13.5px] leading-relaxed">
           {step.reactants.map(name).join(" + ")}
           <span className="mx-2 text-muted">→</span>
