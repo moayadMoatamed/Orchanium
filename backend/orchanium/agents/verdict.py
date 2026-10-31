@@ -109,6 +109,9 @@ def decide(ctx: RunContext, g: KnowledgeGraph, debate: DebateResult | None,
             reasons.append(f"{grades.count('none')} step(s) have no published precedent")
         if gaps:
             reasons.append(f"{len(gaps)} precursor(s) neither purchasable nor made in the route")
+        if weak + major >= 3:
+            reasons.append(f"{weak} weakly-supported step(s) and {major} standing major objection(s): "
+                           "too much at once to call the route sound")
     elif weak == 0 and major == 0:
         label = "Feasible"
         reasons.append("every step has direct or close-analog published precedent; no major objection stands")
