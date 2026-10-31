@@ -177,7 +177,7 @@ def test_strict_mode_hides_near_identical_evidence():
     clue = Clue(id="c", origin="web", reactants=[], products=[], source=SourceRef(kind="paper", title="t"))
     from orchanium.chem.similarity import tanimoto
     assert tanimoto(near, PARACETAMOL) > 0.5 > tanimoto(far, PARACETAMOL)
-    assert "strict" in _hidden_hit(ctx, [r(near)], clue)
+    assert "similar to a hidden molecule" in _hidden_hit(ctx, [r(near)], clue)
     assert _hidden_hit(ctx, [r(far)], clue) is None
 
 
