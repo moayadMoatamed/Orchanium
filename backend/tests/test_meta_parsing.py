@@ -62,3 +62,51 @@ def test_strict_schema_keeps_fields_named_title_and_default():
     assert set(s["properties"]) == {"title", "default"}
     assert s["required"] == ["title", "default"]
     assert "title" not in s["properties"]["title"]          # annotation stripped inside
+
+
+def test_agent_out_of_tool_turns_still_answers(monkeypatch):
+    """A long investigation must end in a result: when the turns run out the
+    tools are withdrawn and the model is asked for its answer."""
+    import asyncio
+    from pydantic import BaseModel
+    from orchanium.meta.client import Budget, MetaClient, Tool
+
+    class Args(BaseModel):
+        q: str
+
+    class Out(BaseModel):
+        answer: str
+
+    calls = {"tool_bodies": 0, "final_bodies": 0}
+
+    async def fake_post(body, attempts=3):
+        if "tools" in body:
+            calls["tool_bodies"] += 1
+            return {"id": "x", "usage": {},
+                    "output": [{"type": "function_call", "name": "look", "call_id": f"c{calls['tool_bodies']}",
+                                "arguments": '{"q": "more"}'}]}
+        calls["final_bodies"] += 1
+        return {"id": "y", "usage": {},
+                "output": [{"type": "message", "content": [{"type": "output_text",
+                                                            "text": '{"answer": "from what I gathered"}'}]}]}
+
+    class NoCache:
+        def cache_get(self, *a):
+            return None
+
+        def cache_set(self, *a):
+            return None
+
+    monkeypatch.setattr("orchanium.meta.client.get_store", lambda: NoCache())
+    client = MetaClient.__new__(MetaClient)
+    client.budget, client.redact = Budget(), None
+    monkeypatch.setattr(client, "_post", fake_post)
+    tool = Tool(name="look", description="look", params=Args, fn=lambda a: _ok())
+
+    async def _ok():
+        return {"ok": True}
+
+    resp = asyncio.run(client.run_tools([{"role": "user", "content": "go"}], [tool],
+                                        schema=Out, max_turns=3))
+    assert calls["tool_bodies"] == 3 and calls["final_bodies"] == 1
+    assert resp.parsed.answer == "from what I gathered"

@@ -314,7 +314,7 @@ class MetaClient:
         schema: type[BaseModel] | None = None,
         effort: str = "low",
         model: str | None = None,
-        max_turns: int = 12,
+        max_turns: int = 16,
         on_call: Callable[[str, dict, Any], None] | None = None,
     ) -> MetaResponse:
         """Runs the model with function tools until it answers without calling one.
@@ -324,14 +324,20 @@ class MetaClient:
         specs = [{"type": "function", "name": t.name, "description": t.description,
                   "parameters": strict_schema(t.params), "strict": True} for t in tools]
         convo = list(input)
-        for _ in range(max_turns):
-            body: dict[str, Any] = {"model": model, "input": convo, "tools": specs, "reasoning": {"effort": effort}}
+
+        def _body(with_tools: bool) -> dict:
+            b: dict[str, Any] = {"model": model, "input": convo, "reasoning": {"effort": effort}}
+            if with_tools:
+                b["tools"] = specs
             if instructions:
-                body["instructions"] = instructions
+                b["instructions"] = instructions
             if schema is not None:
-                body["text"] = {"format": {"type": "json_schema", "name": schema.__name__,
-                                           "schema": strict_schema(schema), "strict": True}}
-            body = self.scrub(body)
+                b["text"] = {"format": {"type": "json_schema", "name": schema.__name__,
+                                        "schema": strict_schema(schema), "strict": True}}
+            return self.scrub(b)
+
+        for _ in range(max_turns):
+            body = _body(True)
             key = hash_key(body)
             store = get_store()
             if (hit := store.cache_get(CACHE_NS + ".raw", key)) is not None:
@@ -363,7 +369,20 @@ class MetaClient:
                     on_call(c["name"], json.loads(c.get("arguments") or "{}"), result)
                 convo.append({"type": "function_call_output", "call_id": c["call_id"],
                               "output": json.dumps(result, default=str)[:20000]})
-        raise MetaAPIError(f"agent did not finish within {max_turns} tool turns")
+        # Out of tool turns. Withdrawing the tools and asking once more turns a
+        # long investigation into an answer, instead of throwing the work away:
+        # a route argued from what was gathered beats no route at all.
+        convo.append({"role": "user", "content":
+                      "You have used all the research turns available. Give your final answer now, "
+                      "from what you have already gathered. Do not call any more tools."})
+        self.budget.check("llm")
+        data = await self._post(_body(False))
+        self.budget.add_llm(model, data.get("usage") or {}, 0)
+        text, anns, _ = _parse_output(data)
+        if not text:
+            raise MetaAPIError(f"agent did not finish within {max_turns} tool turns, and gave no final answer")
+        return self._attach_parsed(MetaResponse(id=data.get("id"), model=model, text=text,
+                                                annotations=anns, usage=data.get("usage") or {}), schema)
 
     # -------- raw call used by SAM (different output grammar, image billing)
     async def raw(self, body: dict) -> dict:
