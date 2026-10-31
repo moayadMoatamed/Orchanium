@@ -115,6 +115,13 @@ def _hidden_hit(ctx: RunContext, resolved: list[Resolved], clue: Clue,
     for r in resolved:
         if r.ok and r.inchikey.split("-")[0] in blocks:
             return "contains the target" if r.inchikey == ctx.target.inchikey else f"contains hidden molecule {r.name}"
+    # A patent family writes about one chemical series under many names, and a
+    # near-final intermediate can still score low on fingerprint similarity, so
+    # sharing the target's ring skeleton counts as knowing the answer.
+    cores = {c for s in protected if (c := rd.scaffold(s))}
+    for r in (products if products is not None else resolved):
+        if r.ok and cores and rd.scaffold(r.smiles) in cores:
+            return f"makes {r.name}, built on the target's own scaffold"
     if ctx.similarity_cap is not None:
         for r in (products if products is not None else resolved):
             if r.ok and (sim := max(tanimoto(r.smiles, s) for s in protected)) > ctx.similarity_cap:

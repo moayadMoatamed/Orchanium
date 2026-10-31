@@ -228,3 +228,36 @@ def test_blind_mode_scrubs_every_name_of_the_target_from_requests():
     text = json.dumps(out).lower()
     assert "tylenol" not in text and "acetaminophen" not in text and "paracetamol" not in text
     assert out["max_output_tokens"] == 10
+
+
+def test_blind_mode_hides_the_targets_own_chemical_series():
+    """A patent family describes one series under many names: a near-final
+    intermediate can look unlike the target by fingerprint yet share its core."""
+    from orchanium.clues import _hidden_hit
+    from orchanium.chem.resolver import Resolved
+    from orchanium.chem.similarity import tanimoto
+    soto = ("CC(C)c1nccc(C)c1N1C(=O)N=C(N2CCN(C(=O)C=C)C[C@@H]2C)c2cc(F)c(-c3c(O)cccc3F)nc21")
+    penultimate = "CC(C)c1nccc(C)c1N1C(=O)N=C(N2CCNC[C@@H]2C)c2cc(F)c(-c3c(O)cccc3F)nc21"
+    unrelated = "CC(=O)Nc1ccc(O)cc1"
+    ctx = _ctx(soto)
+    ctx.blind, ctx.similarity_cap = True, 0.85
+    r = lambda s: Resolved(ok=True, query=s, inchikey=rd.inchikey(s), smiles=s, name="x")  # noqa: E731
+    clue = Clue(id="c", origin="web", reactants=[], products=[], source=SourceRef(kind="patent", title="t"))
+    # the fingerprint cap alone would let the near-final intermediate through
+    assert tanimoto(penultimate, soto) < 0.85
+    assert "scaffold" in (_hidden_hit(ctx, [r(penultimate)], clue) or "")
+    assert _hidden_hit(ctx, [r(unrelated)], clue) is None
+
+
+def test_scaffold_rule_does_not_over_block_simple_targets():
+    """Paracetamol's skeleton is just a benzene ring: it identifies no series,
+    so the rule must not drop every clue that contains a benzene."""
+    from orchanium.clues import _hidden_hit
+    from orchanium.chem.resolver import Resolved
+    ctx = _ctx(PARACETAMOL)
+    ctx.blind = True
+    other = Resolved(ok=True, query="x", inchikey=rd.inchikey("CC(=O)Nc1ccccc1Cl"),
+                     smiles="CC(=O)Nc1ccccc1Cl", name="x")
+    clue = Clue(id="c", origin="web", reactants=[], products=[], source=SourceRef(kind="patent", title="t"))
+    assert rd.scaffold(PARACETAMOL) is None
+    assert _hidden_hit(ctx, [other], clue) is None
