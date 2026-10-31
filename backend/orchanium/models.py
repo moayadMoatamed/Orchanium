@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 from .chem.resolver import MolRef
 
-SourceKind = Literal["patent", "paper", "procedure", "textbook", "encyclopedia", "web", "database", "vendor"]
+SourceKind = Literal["patent", "paper", "procedure", "textbook", "encyclopedia", "web", "database", "vendor", "lab"]
 
 
 # ---------------------------------------------------------------- clues (any source)
@@ -41,6 +41,7 @@ class Clue(BaseModel):
     yield_pct: float | None = None
     outcome: Literal["success", "failure"] = "success"
     source: SourceRef
+    recalled_from: str | None = None     # run that first found it, when recalled from the lasting graph
 
 
 class ResearchNeed(BaseModel):

@@ -121,6 +121,7 @@ function RxBox({ s, b, step, selected }: { s: S; b: Box; step: number | null; se
   const grade = blocked ? "blocked" : (s.verdict?.steps.find((x) => x.hypothesis_id === rx.id)?.grade ?? null);
   const n = sourceCount(s, rx.id);
   const dim = !step;
+  const title = s.report?.data.steps.find((x) => x.hypothesis_id === rx.id)?.name ?? rx.classes[0] ?? "Chemical step";
   return (
     <button
       onClick={() => s.select({ step: rx.id, molecule: null })}
@@ -131,7 +132,7 @@ function RxBox({ s, b, step, selected }: { s: S; b: Box; step: number | null; se
       style={{ left: b.x, top: b.y + (MOL_H - RX_H) / 2, width: RX_W, height: RX_H, opacity: dim ? 0.8 : 1 }}
     >
       <span className="label">{step ? `Step ${step}` : blocked ? "Ruled out" : "Not chosen"}</span>
-      <span className="mt-0.5 truncate text-[13px] font-medium leading-snug" title={rx.classes[0]}>{rx.classes[0] ?? "Chemical step"}</span>
+      <span className="mt-0.5 truncate text-[13px] font-medium leading-snug" title={title}>{title}</span>
       <span className="line-clamp-1 text-[11.5px] leading-snug text-muted" title={reactionPlain(rx.classes[0])}>{reactionPlain(rx.classes[0])}</span>
       <span className="mt-1.5">
         {grade ? (
@@ -187,8 +188,10 @@ function Inspector({ s }: { s: S }) {
     return (
       <>
         <div className="label">{onRoute ? "Step on the route" : rx.critic === "block" ? "Ruled out" : "Explored, not chosen"}</div>
-        <h2 className="mt-1 text-[19px] font-semibold leading-tight tracking-[-0.015em]">{rx.classes[0] ?? "Chemical step"}</h2>
-        <p className="mt-1 text-[13px] text-muted">{reactionPlain(rx.classes[0])}.</p>
+        <h2 className="mt-1 text-[19px] font-semibold leading-tight tracking-[-0.015em]">
+          {s.report?.data.steps.find((x) => x.hypothesis_id === rx.id)?.name ?? rx.classes[0] ?? "Chemical step"}
+        </h2>
+        <p className="mt-1 text-[13px] text-muted">{rx.classes[0] ?? "Chemical step"} · {reactionPlain(rx.classes[0]).toLowerCase()}.</p>
         <p className="mt-4 text-[13px] leading-relaxed">
           {rx.reactants.map(name).join(" + ")} <span className="text-muted">→</span>{" "}
           <span className="font-medium">{name(rx.products[0])}</span>

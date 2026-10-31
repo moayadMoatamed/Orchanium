@@ -77,6 +77,7 @@ async def main():
     orch = Orchestrator(c["target"], blind=True, hidden=[a.patent], hidden_molecules=hidden_mols,
                         similarity_cap=a.strict,
                         web_budget=a.web, debate_rounds=a.rounds,
+                        memory=False,       # a held-out score must not depend on what earlier runs learned
                         extra_sink=lambda e: print(f"[{e.data['agent_id']:>16}] {e.data['text'][:200]}", flush=True)
                         if e.kind == "agent.log" and "🔧" not in e.data["text"] else None)
     res = await orch.run()

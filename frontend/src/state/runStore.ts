@@ -3,7 +3,7 @@
  *  `connect`, which attaches an EventSource. */
 import { create } from "zustand";
 import type {
-  AgentState, Cost, Molecule, ProvNode, Reaction, ReportData, RouteVerdict, TargetInfo,
+  AgentState, Cost, LabNoteInput, Molecule, ProvNode, Reaction, ReportData, Revision, RouteVerdict, TargetInfo,
 } from "./types";
 
 export type Tab = "result" | "graph" | "verification" | "debate";
@@ -28,6 +28,7 @@ interface RunState {
   verdict: RouteVerdict | null;
   report: { markdown: string; data: ReportData } | null;
   summary: Record<string, any> | null;
+  revisions: Revision[];
 
   tab: Tab;
   selectedStep: string | null;
@@ -39,6 +40,7 @@ interface RunState {
   reset: (runId: string, target: string) => void;
   apply: (kind: string, data: any, ts?: number) => void;
   connect: (runId: string, replaySpeed?: number) => () => void;
+  addNote: (note: LabNoteInput) => Promise<Revision>;
 }
 
 const EMPTY_COST: Cost = {
@@ -64,6 +66,7 @@ export const useRun = create<RunState>((set, get) => ({
   verdict: null,
   report: null,
   summary: null,
+  revisions: [],
   tab: "result",
   selectedStep: null,
   selectedNode: null,
@@ -82,7 +85,7 @@ export const useRun = create<RunState>((set, get) => ({
       runId, target, status: "running", targetInfo: null, blind: false,
       startedAt: null, finishedAt: null, lastEventTs: null,
       molecules: {}, reactions: {}, prov: {}, provOrder: [], agents: {}, agentOrder: [],
-      cost: EMPTY_COST, verdict: null, report: null, summary: null,
+      cost: EMPTY_COST, verdict: null, report: null, summary: null, revisions: [],
       tab: "result", selectedStep: null, selectedNode: null, selectedMolecule: null,
     }),
 
@@ -160,6 +163,9 @@ export const useRun = create<RunState>((set, get) => ({
       case "report":
         set({ report: data });
         break;
+      case "revision":
+        set({ revisions: [...s.revisions.filter((r) => r.note_id !== data.note_id), data] });
+        break;
       default:
         break;
     }
@@ -179,7 +185,7 @@ export const useRun = create<RunState>((set, get) => ({
       es = new EventSource(`/api/runs/${runId}/events?replay_speed=${replaySpeed}&since=${seen}`);
       const kinds = [
         "run.status", "agent.status", "agent.log", "prov.node",
-        "graph.molecule", "graph.reaction", "route", "cost", "report",
+        "graph.molecule", "graph.reaction", "route", "cost", "report", "revision",
       ];
       for (const kind of kinds) {
         es.addEventListener(kind, (e) => {
@@ -205,6 +211,21 @@ export const useRun = create<RunState>((set, get) => ({
       es?.close();
     };
   },
+
+  /** A lab note revises the finished run on the server; the response carries
+   *  the new events, applied here exactly as if they had been streamed. */
+  addNote: async (note) => {
+    const runId = get().runId;
+    const r = await fetch(`/api/runs/${runId}/notes`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(note),
+    });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(body.detail ?? `The note could not be saved (${r.status}).`);
+    for (const e of body.events) get().apply(e.kind, e.data, e.ts);
+    return get().revisions[get().revisions.length - 1];
+  },
 }));
 
 // ---------------------------------------------------------------- selectors
@@ -216,9 +237,12 @@ export function routeSteps(s: RunState) {
     const sv = s.verdict?.steps.find((x) => x.hypothesis_id === id);
     const rx = s.reactions[id];
     const node = s.prov[`verdict:${id}`];
+    const detail = s.report?.data.steps.find((x) => x.hypothesis_id === id);
     return {
       index: i + 1,
       id,
+      detail,
+      name: detail?.name ?? null,
       reaction: sv?.reaction ?? (rx ? describeReaction(s, rx) : id),
       grade: (sv?.grade ?? node?.details?.grade ?? "none") as string,
       score: sv?.precedent_score ?? node?.details?.precedent_score ?? null,
@@ -229,6 +253,23 @@ export function routeSteps(s: RunState) {
       product: rx?.products[0] ?? null,
     };
   });
+}
+
+/** Operations that change the molecule count as steps, the way chemists
+ *  count them; workup and purification do not. A step the Builder gave no
+ *  procedure for counts once. */
+const CHEMICAL_OPS = new Set(["protect", "react", "deprotect"]);
+
+export function stepCount(steps: ReturnType<typeof routeSteps>) {
+  let protection = 0;
+  for (const st of steps) {
+    protection += (st.detail?.procedure ?? []).filter((o) => o.kind === "protect" || o.kind === "deprotect").length;
+  }
+  const total = steps.reduce((n, st) => {
+    const ops = (st.detail?.procedure ?? []).filter((o) => CHEMICAL_OPS.has(o.kind)).length;
+    return n + Math.max(1, ops);
+  }, 0);
+  return { total, reactions: steps.length, protection };
 }
 
 /** The route as a story: what to buy, what gets made on the way, and the

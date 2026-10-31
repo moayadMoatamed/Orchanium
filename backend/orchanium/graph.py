@@ -1,4 +1,4 @@
-"""Per-run knowledge graph.
+"""The knowledge graph a run reasons over (seeded from the lasting graph, see memory.py).
 
 Nodes
   Molecule   id = InChIKey; roles: target | precursor | clue
@@ -79,6 +79,8 @@ class RouteStep(BaseModel):
     best_precedent: str | None = None
     precedent_score: float | None = None
     failures: int = 0
+    lab_successes: int = 0
+    lab_failures: int = 0
 
 
 class Route(BaseModel):
@@ -139,10 +141,28 @@ class KnowledgeGraph:
         precs = self.precedents.get(hyp_id, [])
         good = [p for p in precs if p.outcome == "success"]
         fails = sum(1 for p in precs if p.outcome == "failure" and p.score.grade in ("direct", "analog"))
-        best = good[0] if good else None
+        lab_ok, lab_bad = self.lab_record(hyp_id)
+        # a success in the user's own lab on this exact step outranks any literature
+        best = next((p for p in precs if p.observed_id in lab_ok), None) or (good[0] if good else None)
         return RouteStep(hypothesis_id=hyp_id, grade=best.score.grade if best else "none",
                          best_precedent=best.observed_id if best else None,
-                         precedent_score=best.score.score if best else None, failures=fails)
+                         precedent_score=best.score.score if best else None, failures=fails + len(lab_bad),
+                         lab_successes=sum(lab_ok.values()), lab_failures=sum(lab_bad.values()))
+
+    def lab_record(self, hyp_id: str) -> tuple[dict[str, int], dict[str, int]]:
+        """Lab notes on this exact step, as {observed reaction: count} for
+        successes and for failures."""
+        ok: dict[str, int] = {}
+        bad: dict[str, int] = {}
+        for p in self.precedents.get(hyp_id, []):
+            if p.score.grade != "direct":
+                continue
+            for cid in self.reactions[p.observed_id].clue_ids:
+                c = self.clues[cid]
+                if c.origin == "lab":
+                    side = ok if c.outcome == "success" else bad
+                    side[p.observed_id] = side.get(p.observed_id, 0) + 1
+        return ok, bad
 
     def similar_molecules(self, mol_id: str, min_sim: float = 0.4, k: int = 8) -> list[tuple[str, float]]:
         s = self.smiles(mol_id)

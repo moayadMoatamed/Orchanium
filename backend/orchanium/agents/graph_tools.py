@@ -29,7 +29,8 @@ def _mol(g: KnowledgeGraph, mid: str) -> dict:
 def _clue_brief(g: KnowledgeGraph, cid: str) -> dict:
     c = g.clues[cid]
     cond = {k: v for k, v in c.conditions.model_dump().items() if v not in (None, "")}
-    return {"id": cid, "outcome": c.outcome, "conditions": cond, "yield_pct": c.yield_pct,
+    return {"id": cid, "origin": c.origin, "outcome": c.outcome, "conditions": cond, "yield_pct": c.yield_pct,
+            "reagents": [r.label for r in c.reagents][:8],
             "source": {"kind": c.source.kind, "title": c.source.title, "url": c.source.url},
             "snippet": c.source.snippet, "citation_check": g.citation_status.get(cid, "pending")}
 
@@ -40,7 +41,8 @@ def _hyp_brief(g: KnowledgeGraph, hid: str) -> dict:
     return {"id": hid, "product": _mol(g, h.product), "reactants": [_mol(g, x) for x in h.reactants],
             "reaction_class": h.classes, "critic": h.critic.verdict if h.critic else None,
             "evidence_grade": step.grade, "best_precedent_score": step.precedent_score,
-            "failure_precedents": step.failures, "n_precedents": len(g.precedents.get(hid, []))}
+            "failure_precedents": step.failures, "n_precedents": len(g.precedents.get(hid, [])),
+            "lab_notes": {"successes": step.lab_successes, "failures": step.lab_failures}}
 
 
 # ---------------------------------------------------------------- params

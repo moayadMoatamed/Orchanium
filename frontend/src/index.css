@@ -37,6 +37,10 @@ body {
   .btn-secondary {
     @apply btn bg-surface border border-hairline hover:bg-ground;
   }
+  .input {
+    @apply w-full rounded-chip border border-hairline bg-surface px-3 py-2 text-[13.5px] outline-none
+           transition-colors placeholder:text-muted/55 focus:border-accent/50 focus:ring-1 focus:ring-accent/20;
+  }
   .tab {
     @apply rounded-chip px-3 py-1.5 text-[13.5px] font-medium text-muted transition-colors
            hover:text-ink;

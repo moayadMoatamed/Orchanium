@@ -2,8 +2,11 @@
 
   planner      resolve the target (known or new)
   decomposer   cut it into hypothesis steps (RDKit templates)
-  clue sources gather evidence per step: USPTO for every step, web research
-               where the evidence is weakest on the most promising routes
+  clue sources gather evidence per step: USPTO and the lasting knowledge graph
+               for every step, web research where the evidence is weakest on
+               the most promising routes
+  memory       every clue found is kept for later runs (memory.py); the final
+               graph is snapshotted so lab notes can revise the verdict (lab.py)
   graph        precedent links scored; citations verified
   debate       Builder vs Skeptic over the graph (may request research / propose steps)
   verdict      deterministic feasibility label  →  reporter
@@ -15,6 +18,7 @@ import time
 import uuid
 from typing import Callable
 
+from . import lab, memory
 from .agents import citation_checker, debate, decomposer, planner, reporter, verdict
 from .agents.graph_tools import _hyp_brief
 from .clues import gather, link_and_emit, need_for
@@ -22,6 +26,7 @@ from .config import settings
 from .context import RunContext
 from .events import CostEvt, Event, EventBus, RouteEvt
 from .graph import KnowledgeGraph
+from .memory import MemorySource
 from .meta.client import Budget, MetaClient
 from .sources.uspto import USPTOSource
 from .sources.web import WebSource
@@ -41,7 +46,7 @@ class Orchestrator:
                  similarity_cap: float | None = None,
                  web_budget: int = 4,
                  debate_rounds: int = 2, debate_research_budget: int = 2, skeptic_model: str | None = None,
-                 extra_sink: Callable[[Event], None] | None = None):
+                 memory: bool = True, extra_sink: Callable[[Event], None] | None = None):
         self.query, self.blind, self.hidden = query, blind, hidden or []
         self.hidden_molecules = hidden_molecules or []
         self.similarity_cap = similarity_cap
@@ -63,6 +68,7 @@ class Orchestrator:
         self.g = KnowledgeGraph()
         self.ctx: RunContext | None = None
         self.uspto, self.web = USPTOSource(), WebSource()
+        self.memory = MemorySource() if memory else None
         self._n_web = 0
 
     # ------------------------------------------------------------- research helpers
@@ -81,15 +87,25 @@ class Orchestrator:
         link_and_emit(ctx, g, [hyp_id])
         return clues
 
-    async def _uspto_all(self, hyp_ids: list[str]) -> None:
+    async def _local_evidence(self, hyp_ids: list[str]) -> None:
+        """Evidence that costs nothing to look up: the patent index and the
+        lasting knowledge graph (clues earlier runs and lab notes left behind)."""
+        sources = [(self.uspto, "uspto", "USPTO precedent search")]
+        if self.memory and memory.stats()["clues"]:
+            sources.append((self.memory, "memory", "Knowledge graph recall"))
         sem = asyncio.Semaphore(4)
 
-        async def one(hid):
+        async def one(source, agent_id, hid):
             async with sem:
-                await gather(self.ctx, self.g, self.uspto, need_for(self.g, hid), "uspto")
-        async with self.ctx.agent("uspto", "researcher", "USPTO precedent search") as h:
-            await asyncio.gather(*(one(h_) for h_ in hyp_ids))
-            h["message"] = f"{sum(1 for c in self.g.clues.values() if c.origin == 'uspto')} patent precedents"
+                await gather(self.ctx, self.g, source, need_for(self.g, hid), agent_id)
+
+        async def search(source, agent_id, label):
+            async with self.ctx.agent(agent_id, "researcher", label) as h:
+                await asyncio.gather(*(one(source, agent_id, x) for x in hyp_ids))
+                n = sum(1 for c in self.g.clues.values()
+                        if (c.recalled_from if source is self.memory else c.origin == "uspto"))
+                h["message"] = f"{n} {'remembered clues' if source is self.memory else 'patent precedents'}"
+        await asyncio.gather(*(search(*x) for x in sources))
         link_and_emit(self.ctx, self.g, hyp_ids)
 
     def _web_targets(self) -> list[str]:
@@ -114,7 +130,9 @@ class Orchestrator:
         h = decomposer.add_hypothesis(ctx, g, g.molecules[product_id], mols, [reaction_class], "agent",
                                       depth=None, parent_prov=None)
         if h.critic.verdict != "block":
-            await gather(ctx, g, self.uspto, need_for(g, h.id), "uspto")
+            for source, agent_id in [(self.uspto, "uspto"), (self.memory, "memory")]:
+                if source:
+                    await gather(ctx, g, source, need_for(g, h.id), agent_id)
             link_and_emit(ctx, g, [h.id])
         return {"added": _hyp_brief(g, h.id), "note": "critic: " + h.critic.summary}
 
@@ -148,7 +166,7 @@ class Orchestrator:
 
             # each phase must leave a share of the budget for the phases after it
             self.budget.reserve = 0.5
-            await self._uspto_all(live)
+            await self._local_evidence(live)
             await asyncio.gather(*(self._web_research(hid) for hid in self._web_targets()))
 
             self.budget.reserve = 0.1
@@ -173,6 +191,8 @@ class Orchestrator:
                                               [g.grade(x) for x in v.route]), "gaps": v.gaps}))
             async with ctx.agent("reporter", "reporter", "Reporter") as h:
                 report = await reporter.run(ctx, g, v, dbt)
+            lab.save_snapshot(self.run_id, lab.Snapshot(graph=g, debate=dbt, verdict=v, report=report,
+                                                        target=ctx.target))
             status = "done"
         except Exception as e:  # noqa: BLE001
             ctx.log("orchestrator", f"run failed: {type(e).__name__}: {e}", "error")
@@ -180,10 +200,16 @@ class Orchestrator:
             failure = {"message": str(e) or type(e).__name__, "retryable": getattr(e, "retryable", False)}
         finally:
             await client.aclose()
+            try:
+                kept = memory.remember(g, self.run_id)
+                ctx.log("orchestrator", f"{kept} clue(s) kept in the lasting knowledge graph")
+            except Exception as e:  # noqa: BLE001  (losing the memory write must not lose the run)
+                ctx.log("orchestrator", f"could not save clues to the lasting graph: {e}", "warn")
             summary = {"target": ctx.target.name if ctx.target else self.query, "blind": self.blind,
                        "verdict": v.label if v else None, "confidence": v.confidence if v else None,
                        "steps": len(v.route) if v else 0, "hypotheses": len(g.hypotheses()),
-                       "clues": len(g.clues), "cost": self.budget.cost.snapshot(), "failure": failure}
+                       "clues": len(g.clues), "recalled": sum(1 for c in g.clues.values() if c.recalled_from),
+                       "cost": self.budget.cost.snapshot(), "failure": failure}
             bus.publish("run.status", {"status": status, "target": self.query, "summary": summary})
             store.finish_run(self.run_id, status, summary)
             bus.close()

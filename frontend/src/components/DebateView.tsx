@@ -1,9 +1,10 @@
 import { CircleCheck, Hammer, MessagesSquare, ScanSearch, TriangleAlert } from "lucide-react";
 import { useMemo } from "react";
 import { routeSteps, useRun } from "../state/runStore";
-import type { ProvNode } from "../state/types";
+import { stepTitle } from "./StepCard";
+import type { Operation, ProvNode } from "../state/types";
 import { firstSentence, plural, readable } from "../textutil";
-import { TONE } from "../tokens";
+import { OPERATION, TONE } from "../tokens";
 import { Card, Empty, MoreText, Section } from "./primitives";
 
 const SEVERITY: Record<string, { word: string; tone: keyof typeof TONE }> = {
@@ -11,13 +12,22 @@ const SEVERITY: Record<string, { word: string; tone: keyof typeof TONE }> = {
   warn: { word: "objection", tone: "warn" },
 };
 
+/** Agents write a plain sentence for readers and a technical one with the
+ *  evidence. The plain one leads; the technical one sits behind a toggle.
+ *  Runs from before plain sentences show a shortened technical text. */
 function Turn({ t }: { t: ProvNode }) {
   const builder = t.details?.agent === "builder" || t.agent_id === "builder";
   const text = (t.details?.text as string) ?? t.summary;
+  const plain = t.details?.plain as string | undefined;
   const cited = ((t.details?.cited_ids as string[]) ?? []).length;
   const struck = ((t.details?.struck_citations as string[]) ?? []).length;
+  const ops = (t.details?.procedure as Operation[] | undefined) ?? [];
+  const concede = t.details?.concede as boolean | undefined;
   const sev = builder ? null : SEVERITY[t.status];
   const Icon = builder ? Hammer : ScanSearch;
+  const what = builder
+    ? concede === true ? "conceded the point" : concede === false ? "answered the objection" : "argued for this step"
+    : sev ? `raised an ${sev.word}` : "noted";
   return (
     <div className="flex gap-3 py-3.5">
       <div
@@ -29,22 +39,34 @@ function Turn({ t }: { t: ProvNode }) {
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-x-2 text-[12.5px]">
           <span className="font-medium">{builder ? "Builder" : "Skeptic"}</span>
-          {sev && <span style={{ color: TONE[sev.tone].fg }}>raised an {sev.word}</span>}
-          {!builder && !sev && <span className="text-muted">had no objection</span>}
+          <span style={sev ? { color: TONE[sev.tone].fg } : concede ? { color: TONE.warn.fg } : undefined}
+                className={sev || concede ? "" : "text-muted"}>{what}</span>
           <span className="text-muted">· round {t.details?.turn ?? 1}</span>
         </div>
         <div className="mt-1 text-[13.5px] leading-relaxed">
-          <MoreText short={firstSentence(text)} full={readable(text, 4000)} />
+          {plain ? readable(plain, 600) : <MoreText short={firstSentence(text)} full={readable(text, 4000)} />}
         </div>
-        {(cited > 0 || struck > 0) && (
-          <div className="mt-1.5 text-[12px] text-muted">
-            {cited > 0 && `backed by ${plural(cited, "piece")} of evidence from the graph`}
-            {struck > 0 && (
-              <span style={{ color: TONE.bad.fg }}>
-                {cited > 0 && " · "}{plural(struck, "citation")} rejected because it pointed at nothing real
-              </span>
-            )}
+        {ops.length > 0 && (
+          <div className="mt-1.5 text-[12.5px] text-muted">
+            Plan: {ops.map((o) => OPERATION[o.kind]?.label.toLowerCase() ?? o.kind).join(" → ")}
           </div>
+        )}
+        {(plain || cited > 0 || struck > 0) && (
+          <details className="mt-1.5 text-[12.5px] text-muted">
+            <summary className="cursor-pointer select-none">
+              Technical detail
+              {cited > 0 && ` · ${plural(cited, "piece")} of evidence cited`}
+              {struck > 0 && (
+                <span style={{ color: TONE.bad.fg }}> · {plural(struck, "citation")} rejected</span>
+              )}
+            </summary>
+            {plain && <div className="mt-1.5 leading-relaxed text-ink/80">{readable(text, 4000)}</div>}
+            {struck > 0 && (
+              <div className="mt-1" style={{ color: TONE.bad.fg }}>
+                Rejected citations pointed at nothing in the graph, so code struck them out.
+              </div>
+            )}
+          </details>
         )}
       </div>
     </div>
@@ -78,7 +100,7 @@ export function DebateView() {
   const routeIds = new Set(steps.map((x) => x.id));
   const groups = steps.map((step) => ({
     key: step.id,
-    title: `Step ${step.index} · ${step.classes[0] ?? "step"}`,
+    title: `Step ${step.index} · ${stepTitle(s, step)}`,
     turns: turns.filter((t) => t.step_id === step.id),
     standing: sustained.filter((o) => o.hypothesis_id === step.id),
   }));

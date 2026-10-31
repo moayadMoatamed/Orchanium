@@ -18,16 +18,43 @@ from .graph_tools import build_tools, node_kind
 
 # ---------------------------------------------------------------- turn schemas (LLM)
 
+PLAIN = "One or two sentences a non-chemist can follow: no ids, scores or abbreviations"
+
+
+class SuggestedConditions(BaseModel):
+    reagents: list[str] = Field(description="NAMES of reagents, catalysts and additives, e.g. 'HATU', 'DIPEA'")
+    solvent: str | None
+    temperature_c: float | None
+    time: str | None = Field(description="e.g. '2 h', 'overnight'")
+    atmosphere: str | None = Field(description="e.g. 'nitrogen', or null if air is fine")
+    expected_yield_pct: float | None
+
+
+class Operation(BaseModel):
+    kind: Literal["protect", "activate", "react", "deprotect", "workup", "purify"]
+    action: str = Field(description="Imperative, specific: 'Protect the lysine side-chain amine as its Boc carbamate'")
+    reagents: list[str] = Field(description="NAMES of the reagents this operation uses")
+    why: str = Field(description="Why it is needed, in plain words")
+    responds_to: str | None = Field(description="Id of the Skeptic objection this operation answers, or null")
+    cited_ids: list[str]
+
+
 class StepArgument(BaseModel):
     hypothesis_id: str
+    name: str = Field(description="Short title that tells this step apart from the others, naming what it "
+                                  "joins or changes, e.g. 'Couple palmitoyl-glycine to histidine'")
+    plain: str = Field(description=PLAIN)
     claim: str = Field(description="Why this step works, with the key evidence (scores, conditions, sources)")
-    recommended_conditions: str | None
+    conditions: SuggestedConditions = Field(description="The conditions you recommend, taken from the best precedents")
+    procedure: list[Operation] = Field(description="Every lab operation of this step in order, including any "
+                                                   "protection before and deprotection after the main reaction")
     cited_ids: list[str]
 
 
 class Rebuttal(BaseModel):
     objection_id: str
     concede: bool
+    plain: str = Field(description=PLAIN)
     response: str
     cited_ids: list[str]
 
@@ -43,6 +70,7 @@ class Objection(BaseModel):
     id: str = Field(description="Short stable id, e.g. 'O1'; reuse ids when maintaining an objection")
     hypothesis_id: str
     severity: Literal["minor", "major", "fatal"]
+    plain: str = Field(default="", description=PLAIN + ". Say what could go wrong and what would fix it")
     claim: str
     cited_ids: list[str]
 
@@ -104,17 +132,17 @@ async def run(ctx: RunContext, g: KnowledgeGraph,
             ctx.log(agent, f"{name}({brief})")
         return log
 
-    def emit(agent: str, turn_no: int, items: list[tuple[str, str | None, str, list[str], str]]):
-        """items: (key, hypothesis_id, text, cited_ids, status)"""
-        for key, hyp, text, cited, status in items:
+    def emit(agent: str, turn_no: int, items: list[tuple[str, str | None, str, str, list[str], str, dict]]):
+        """items: (key, hypothesis_id, plain, technical text, cited_ids, status, extra details)"""
+        for key, hyp, plain, text, cited, status, extra in items:
             ok, bad = _valid(g, cited)
             struck.extend(bad)
             parents = [p for p in (_prov_ref(g, i, hyp) for i in ok) if p and p in ctx.prov_nodes]
             ctx.prov(ProvNode(id=f"debate:{agent}:{turn_no}:{key}", node_type="debate", step_id=hyp,
                               agent_id=agent, parent_ids=parents, status=status,
-                              summary=text[:220],
-                              details={"agent": agent, "turn": turn_no, "text": text, "cited_ids": ok,
-                                       "struck_citations": bad}))
+                              summary=(plain or text)[:220],
+                              details={"agent": agent, "turn": turn_no, "plain": plain, "text": text,
+                                       "cited_ids": ok, "struck_citations": bad, **extra}))
 
     for rnd in range(1, rounds + 1):
         # ---- Builder
@@ -126,9 +154,14 @@ async def run(ctx: RunContext, g: KnowledgeGraph,
                                          instructions=common + "\n\n" + prompt("builder"), schema=BuilderTurn,
                                          effort="medium", on_call=tool_logger("builder"))).parsed
         builders.append(bt)
-        emit("builder", rnd, [(a.hypothesis_id, a.hypothesis_id, a.claim, a.cited_ids, "pass") for a in bt.arguments]
-             + [(f"re-{r.objection_id}", None, ("Concedes: " if r.concede else "Rebuts: ") + r.response,
-                 r.cited_ids, "warn" if r.concede else "pass") for r in bt.rebuttals])
+        hyp_of = {o.id: o.hypothesis_id for t in skeptics for o in t.objections}
+        emit("builder", rnd, [(a.hypothesis_id, a.hypothesis_id, a.plain, a.claim,
+                               a.cited_ids + [i for op in a.procedure for i in op.cited_ids], "pass",
+                               {"name": a.name, "procedure": [op.model_dump() for op in a.procedure]})
+                              for a in bt.arguments]
+             + [(f"re-{r.objection_id}", hyp_of.get(r.objection_id), r.plain, r.response, r.cited_ids,
+                 "warn" if r.concede else "pass", {"objection_id": r.objection_id, "concede": r.concede})
+                for r in bt.rebuttals])
         transcript.append({"builder": bt.model_dump()})
         ctx.agent_status("builder", "reasoner", "Builder", "done", bt.summary[:160])
         ctx.log("builder", bt.summary)
@@ -142,8 +175,9 @@ async def run(ctx: RunContext, g: KnowledgeGraph,
                                          instructions=common + "\n\n" + prompt("skeptic"), schema=SkepticTurn,
                                          effort="medium", model=skeptic_model, on_call=tool_logger("skeptic"))).parsed
         skeptics.append(st)
-        emit("skeptic", rnd, [(o.id, o.hypothesis_id, f"[{o.severity}] {o.claim}", o.cited_ids,
-                               "fail" if o.severity == "fatal" else "warn" if o.severity == "major" else "skip")
+        emit("skeptic", rnd, [(o.id, o.hypothesis_id, o.plain, o.claim, o.cited_ids,
+                               "fail" if o.severity == "fatal" else "warn" if o.severity == "major" else "skip",
+                               {"objection_id": o.id, "severity": o.severity})
                               for o in st.objections])
         transcript.append({"skeptic": st.model_dump()})
         ctx.agent_status("skeptic", "reasoner", "Skeptic", "done", st.summary[:160])

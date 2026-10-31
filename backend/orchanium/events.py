@@ -20,7 +20,7 @@ AgentType = Literal[
 ]
 EventKind = Literal[
     "run.status", "agent.status", "agent.log", "prov.node",
-    "graph.molecule", "graph.reaction", "route", "cost", "report",
+    "graph.molecule", "graph.reaction", "route", "cost", "report", "revision",
 ]
 
 
