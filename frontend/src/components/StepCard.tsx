@@ -111,21 +111,30 @@ function BasisTag({ f }: { f: ConditionField }) {
   );
 }
 
-function ConditionsTable({ fields }: { fields: Record<string, ConditionField> }) {
-  const known = Object.entries(fields).filter(([, f]) => f.value);
-  const missing = Object.entries(fields).filter(([, f]) => !f.value).map(([k]) => FIELD_LABEL[k] ?? k);
+/** `omit`: fields shown elsewhere (a procedure names its own reagents). */
+function ConditionsTable({ fields, omit = [] }: { fields: Record<string, ConditionField>; omit?: string[] }) {
+  const rows = Object.entries(fields).filter(([k]) => !omit.includes(k));
+  const known = rows.filter(([, f]) => f.value);
+  const missing = rows.filter(([, f]) => !f.value).map(([k]) => FIELD_LABEL[k] ?? k);
+  const anchor = known.find(([, f]) => f.source)?.[1];
   return (
     <div className="mt-4">
       <div className="label mb-2">Conditions</div>
+      {anchor && (
+        <div className="-mt-1 mb-2 text-[12.5px] text-muted">
+          Reported values from one source:{" "}
+          {anchor.url
+            ? <a href={anchor.url} target="_blank" rel="noreferrer" className="hover:text-ink hover:underline">{anchor.source}</a>
+            : anchor.source}
+        </div>
+      )}
       {known.length ? (
         <dl className="grid grid-cols-[96px_1fr_auto] items-baseline gap-x-4 gap-y-1.5 text-[13px]">
           {known.map(([k, f]) => (
             <div key={k} className="contents">
               <dt className="text-muted">{FIELD_LABEL[k] ?? k}</dt>
               <dd className="min-w-0">
-                {f.url ? (
-                  <a href={f.url} target="_blank" rel="noreferrer" className="hover:underline">{f.value}</a>
-                ) : f.value}
+                {f.value}
                 {f.range && <span className="text-muted"> · {f.range} across {f.n} reports</span>}
               </dd>
               <dd><BasisTag f={f} /></dd>
@@ -225,7 +234,7 @@ export function StepCard({ s, step, buy, target, finished }: {
         {ops.length > 0 && <Procedure ops={ops} />}
 
         {d?.conditions ? (
-          <ConditionsTable fields={d.conditions} />
+          <ConditionsTable fields={d.conditions} omit={ops.length ? ["reagents"] : []} />
         ) : (
           <div className="mt-4 text-[13px]">
             <span className="text-muted">Conditions: </span>

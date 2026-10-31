@@ -5,9 +5,10 @@ value came from:
   analog     a published record of a close analog
   suggested  the Builder's recommendation from the precedents
   missing    nobody reported it
-Values come from the step's successful precedents, best first (lab notes
-lead, then the fullest report, so fields rarely mix procedures); numeric
-fields also give the spread across every report."""
+Reported values all come from one anchor report (lab notes first, then
+exact records, then the fullest report), so they describe a procedure
+someone actually ran; gaps are filled by the Builder's suggestion. Numeric
+fields also give the spread across every successful report."""
 from __future__ import annotations
 
 from ..chem import rdkit_utils as rd
@@ -67,15 +68,18 @@ def record(g: KnowledgeGraph, hyp_id: str, suggested: dict | None = None) -> dic
     rank = {"lab": 0, "reported": 1, "analog": 2}
     reports.sort(key=lambda r: (rank[r[0]], -sum(v not in (None, "") for v in _from_clue(r[1]).values())))
 
+    # every value comes from one anchor report, so the record describes a
+    # procedure someone actually ran; other reports only give numeric spread
+    anchor = reports[0] if reports else None
     out: dict[str, dict] = {}
     for f in FIELDS:
-        seen = [(b, c, v) for b, c in reports if (v := _from_clue(c)[f]) not in (None, "")]
-        if seen:
-            basis, c, v = seen[0]
-            entry = {"value": _fmt(f, v), "basis": basis, "source": c.source.title, "url": c.source.url, "n": len(seen)}
-            nums = sorted({x for *_, x in seen if isinstance(x, (int, float))})
-            if len(nums) > 1:
-                entry["range"] = f"{_fmt(f, nums[0])} to {_fmt(f, nums[-1])}"
+        v = _from_clue(anchor[1])[f] if anchor else None
+        if v not in (None, ""):
+            basis, c = anchor
+            entry = {"value": _fmt(f, v), "basis": basis, "source": c.source.title, "url": c.source.url}
+            nums = [x for _, r in reports if isinstance(x := _from_clue(r)[f], (int, float))]
+            if len(set(nums)) > 1:
+                entry.update(n=len(nums), range=f"{_fmt(f, min(nums))} to {_fmt(f, max(nums))}")
             out[f] = entry
             continue
         s = _suggested(f, suggested or {})
