@@ -1,15 +1,13 @@
-"""Run lifecycle (v2):
+"""One run: what it owns, and what it hands to the pipeline.
 
-  planner      resolve the target (known or new)
-  decomposer   cut it into hypothesis steps (RDKit templates)
-  clue sources gather evidence per step: USPTO and the lasting knowledge graph
-               for every step, web research where the evidence is weakest on
-               the most promising routes
-  memory       every clue found is kept for later runs (memory.py); the final
-               graph is snapshotted so lab notes can revise the verdict (lab.py)
-  graph        precedent links scored; citations verified
-  debate       Builder vs Skeptic over the graph (may request research / propose steps)
-  verdict      deterministic feasibility label  →  reporter
+The Orchestrator holds everything a run shares — the knowledge graph, the run
+context, the budget, the clue sources — and exposes the work each phase does
+(gathering evidence, researching the web, the debate's two callbacks). The
+order those phases run in belongs to pipeline.py, which wires them into a
+LangGraph state machine.
+
+Every clue found is kept for later runs (memory.py), and the final graph is
+snapshotted so a lab note can revise this run's verdict afterwards (lab.py).
 """
 from __future__ import annotations
 
@@ -18,14 +16,14 @@ import time
 import uuid
 from typing import Callable
 
-from . import lab, memory
-from .agents import citation_checker, debate, decomposer, planner, reporter, verdict
+from . import memory, pipeline
+from .agents import citation_checker
 from .agents.graph_tools import _hyp_brief
 from .chem.pubchem import synonyms
 from .clues import gather, link_and_emit, need_for
 from .config import settings
+from .events import CostEvt, Event, EventBus
 from .context import RunContext
-from .events import CostEvt, Event, EventBus, RouteEvt
 from .graph import KnowledgeGraph
 from .memory import MemorySource
 from .meta.client import Budget, MetaClient
@@ -75,7 +73,7 @@ class Orchestrator:
         self._n_web = 0
 
     # ------------------------------------------------------------- research helpers
-    async def _web_research(self, hyp_id: str, focus: str | None = None) -> list:
+    async def research_web(self, hyp_id: str, focus: str | None = None) -> list:
         ctx, g = self.ctx, self.g
         self._n_web += 1
         agent_id = f"researcher-{self._n_web}"
@@ -90,21 +88,22 @@ class Orchestrator:
         link_and_emit(ctx, g, [hyp_id])
         return clues
 
-    async def _blind_setup(self, ctx: RunContext, client: MetaClient) -> None:
+    async def apply_blind_mode(self) -> None:
         """Blind mode holds back the answer, not just the paper that holds it:
         every name the target is known by is scrubbed from each request, so an
         agent cannot recall a published route instead of working one out."""
+        ctx = self.ctx
         names = [ctx.target.name, ctx.target.query]
         if ctx.target.cid:
             names += await synonyms(ctx.target.cid)
         # longest first, so "paxlovid tablet" goes before "paxlovid"
         ctx.redact_terms = sorted({n.strip() for n in names if n and len(n.strip()) >= 4},
                                   key=len, reverse=True)
-        client.redact = ctx.redact
+        ctx.client.redact = ctx.redact
         ctx.log("planner", f"blind mode: {len(ctx.redact_terms)} names of the target are hidden from every agent, "
                            "and any source that names it is dropped whole", level="warn")
 
-    async def _local_evidence(self, hyp_ids: list[str]) -> None:
+    async def gather_local_evidence(self, hyp_ids: list[str]) -> None:
         """Evidence that costs nothing to look up: the patent index and the
         lasting knowledge graph (clues earlier runs and lab notes left behind)."""
         sources = [(self.uspto, "uspto", "USPTO precedent search")]
@@ -125,7 +124,7 @@ class Orchestrator:
         await asyncio.gather(*(search(*x) for x in sources))
         link_and_emit(self.ctx, self.g, hyp_ids)
 
-    def _web_targets(self) -> list[str]:
+    def web_research_targets(self) -> list[str]:
         """Spend web research where evidence is weakest on the most promising routes."""
         g = self.g
         on_routes = [s.hypothesis_id for r in g.routes(k=2) for s in r.steps]
@@ -134,14 +133,14 @@ class Orchestrator:
         return [h for h in ranked if g.grade(h).grade != "blocked"][: self.web_budget]
 
     # debate callbacks ---------------------------------------------------------
-    async def _debate_research(self, hyp_id: str, focus: str) -> dict:
+    async def debate_research(self, hyp_id: str, focus: str) -> dict:
         if self.debate_research_left <= 0:
             return {"error": "research budget for this debate is used up; argue from existing evidence"}
         self.debate_research_left -= 1
-        clues = await self._web_research(hyp_id, focus)
+        clues = await self.research_web(hyp_id, focus)
         return {"new_clues": [c.id for c in clues], "step_now": _hyp_brief(self.g, hyp_id)}
 
-    async def _debate_propose(self, product_id: str, resolved: list, reaction_class: str, notes: list[str]) -> dict:
+    async def debate_propose(self, product_id: str, resolved: list, reaction_class: str, notes: list[str]) -> dict:
         ctx, g = self.ctx, self.g
         mols = [await decomposer.add_molecule(ctx, g, r.smiles, "precursor", r.name) for r in resolved]
         h = decomposer.add_hypothesis(ctx, g, g.molecules[product_id], mols, [reaction_class], "agent",
@@ -155,63 +154,20 @@ class Orchestrator:
 
     # ------------------------------------------------------------- run
     async def run(self) -> dict:
+        """Set the run up, let the pipeline drive it, then close it down.
+        The phases themselves live in pipeline.py."""
         store = get_store()
         store.create_run(self.run_id, self.query)
-        bus = self.bus
-        bus.publish("run.status", {"status": "running", "target": self.query, "blind": self.blind,
-                                   "started_at": time.time()})
+        self.bus.publish("run.status", {"status": "running", "target": self.query, "blind": self.blind,
+                                        "started_at": time.time()})
         client = MetaClient(self.budget)
-        self.ctx = ctx = RunContext(run_id=self.run_id, bus=bus, client=client, blind=self.blind,
+        self.ctx = ctx = RunContext(run_id=self.run_id, bus=self.bus, client=client, blind=self.blind,
                                     hidden=self.hidden, hidden_molecules=self.hidden_molecules,
                                     similarity_cap=self.similarity_cap)
-        g = self.g
-        status, v, report, dbt = "failed", None, "", None
-        failure: dict | None = None
+        state: dict = {}
+        status, failure = "failed", None
         try:
-            async with ctx.agent("planner", "planner", "Planner") as h:
-                await planner.run(ctx, self.query)
-                h["message"] = ctx.target.name
-            if not ctx.target:
-                raise RuntimeError("target could not be resolved")
-            if self.blind:
-                await self._blind_setup(ctx, client)
-            bus.publish("run.status", {"status": "running", "target": self.query, "blind": self.blind,
-                                       "target_info": ctx.target.model_dump()})
-
-            async with ctx.agent("decomposer", "planner", "Decomposer (RDKit)") as h:
-                await decomposer.run(ctx, g)
-                h["message"] = f"{len(g.hypotheses())} candidate steps"
-            live = [x.id for x in g.hypotheses() if x.critic.verdict != "block"]
-
-            # each phase must leave a share of the budget for the phases after it
-            self.budget.reserve = 0.5
-            await self._local_evidence(live)
-            await asyncio.gather(*(self._web_research(hid) for hid in self._web_targets()))
-
-            self.budget.reserve = 0.1
-            review_note = None if self.debate_rounds > 0 else "debate disabled"
-            if self.debate_rounds > 0:
-                async with ctx.agent("debate", "reasoner", "Debate") as h:
-                    try:
-                        dbt = await debate.run(ctx, g, self._debate_research, self._debate_propose,
-                                               rounds=self.debate_rounds, skeptic_model=self.skeptic_model)
-                    except Exception as e:
-                        review_note = ("Meta's content filter declined the debate prompt"
-                                       if "content_policy" in str(e) else f"debate failed: {type(e).__name__}")
-                        raise
-                    h["message"] = f"{len(dbt.sustained)} objection(s) stand"
-
-            self.budget.reserve = 0.0
-            async with ctx.agent("verdict", "critic", "Verdict (rule-based)") as h:
-                v = verdict.decide(ctx, g, dbt, review_note)
-                h["message"] = f"{v.label} ({v.confidence:.0%})"
-            bus.publish("route", RouteEvt(route_id="final", rank=1, steps=v.route, score=v.confidence,
-                                          label=v.label, metrics={**g.metrics(
-                                              [g.grade(x) for x in v.route]), "gaps": v.gaps}))
-            async with ctx.agent("reporter", "reporter", "Reporter") as h:
-                report = await reporter.run(ctx, g, v, dbt)
-            lab.save_snapshot(self.run_id, lab.Snapshot(graph=g, debate=dbt, verdict=v, report=report,
-                                                        target=ctx.target))
+            state = await pipeline.build(self).ainvoke({})
             status = "done"
         except Exception as e:  # noqa: BLE001
             ctx.log("orchestrator", f"run failed: {type(e).__name__}: {e}", "error")
@@ -219,18 +175,28 @@ class Orchestrator:
             failure = {"message": str(e) or type(e).__name__, "retryable": getattr(e, "retryable", False)}
         finally:
             await client.aclose()
-            try:
-                kept = memory.remember(g, self.run_id)
-                ctx.log("orchestrator", f"{kept} clue(s) kept in the lasting knowledge graph")
-            except Exception as e:  # noqa: BLE001  (losing the memory write must not lose the run)
-                ctx.log("orchestrator", f"could not save clues to the lasting graph: {e}", "warn")
-            summary = {"target": ctx.target.name if ctx.target else self.query, "blind": self.blind,
-                       "verdict": v.label if v else None, "confidence": v.confidence if v else None,
-                       "steps": len(v.route) if v else 0, "hypotheses": len(g.hypotheses()),
-                       "clues": len(g.clues), "recalled": sum(1 for c in g.clues.values() if c.recalled_from),
-                       "cost": self.budget.cost.snapshot(), "failure": failure}
-            bus.publish("run.status", {"status": status, "target": self.query, "summary": summary})
+            v, dbt = state.get("verdict"), state.get("debate")
+            summary = self._summarise(v, failure)
+            self._keep_clues()
+            self.bus.publish("run.status", {"status": status, "target": self.query, "summary": summary})
             store.finish_run(self.run_id, status, summary)
-            bus.close()
-        return {"run_id": self.run_id, "status": status, "verdict": v, "debate": dbt, "report": report,
-                "graph": g, "summary": summary}
+            self.bus.close()
+        return {"run_id": self.run_id, "status": status, "verdict": v, "debate": dbt,
+                "report": state.get("report", ""), "graph": self.g, "summary": summary}
+
+    def _keep_clues(self) -> None:
+        """Everything learned here is kept for later runs. Losing that write
+        must never lose the run itself."""
+        try:
+            kept = memory.remember(self.g, self.run_id)
+            self.ctx.log("orchestrator", f"{kept} clue(s) kept in the lasting knowledge graph")
+        except Exception as e:  # noqa: BLE001
+            self.ctx.log("orchestrator", f"could not save clues to the lasting graph: {e}", "warn")
+
+    def _summarise(self, v, failure: dict | None) -> dict:
+        g, ctx = self.g, self.ctx
+        return {"target": ctx.target.name if ctx.target else self.query, "blind": self.blind,
+                "verdict": v.label if v else None, "confidence": v.confidence if v else None,
+                "steps": len(v.route) if v else 0, "hypotheses": len(g.hypotheses()),
+                "clues": len(g.clues), "recalled": sum(1 for c in g.clues.values() if c.recalled_from),
+                "cost": self.budget.cost.snapshot(), "failure": failure}
