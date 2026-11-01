@@ -6,7 +6,7 @@ import type {
   AgentState, Cost, LabNoteInput, Molecule, ProvNode, Reaction, ReportData, Revision, RouteVerdict, TargetInfo,
 } from "./types";
 
-export type Tab = "result" | "graph" | "verification" | "debate";
+export type Tab = "route" | "method" | "reasoning" | "lab";
 
 interface RunState {
   runId: string | null;
@@ -67,7 +67,7 @@ export const useRun = create<RunState>((set, get) => ({
   report: null,
   summary: null,
   revisions: [],
-  tab: "result",
+  tab: "route",
   selectedStep: null,
   selectedNode: null,
   selectedMolecule: null,
@@ -86,7 +86,7 @@ export const useRun = create<RunState>((set, get) => ({
       startedAt: null, finishedAt: null, lastEventTs: null,
       molecules: {}, reactions: {}, prov: {}, provOrder: [], agents: {}, agentOrder: [],
       cost: EMPTY_COST, verdict: null, report: null, summary: null, revisions: [],
-      tab: "result", selectedStep: null, selectedNode: null, selectedMolecule: null,
+      tab: "route", selectedStep: null, selectedNode: null, selectedMolecule: null,
     }),
 
   apply: (kind, data, ts) => {

@@ -1,19 +1,19 @@
-import { BrainCircuit, EyeOff, FileSearch, History, MessagesSquare, Network, Play, ShieldCheck, type LucideIcon } from "lucide-react";
+import { BrainCircuit, EyeOff, FlaskConical, History, Lightbulb, ListOrdered, Play, Route as RouteIcon, type LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { ActivityDock } from "./components/ActivityDock";
-import { DebateView } from "./components/DebateView";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import { GraphView } from "./components/GraphView";
-import { ResultView } from "./components/ResultView";
+import { LabNotesView } from "./components/LabNotesView";
+import { MethodView } from "./components/MethodView";
+import { ReasoningView } from "./components/ReasoningView";
+import { RouteTab } from "./components/RouteTab";
 import { TopBar } from "./components/TopBar";
-import { VerificationView } from "./components/VerificationView";
 import { useRun, type Tab } from "./state/runStore";
 
 const TABS: { id: Tab; label: string; icon: LucideIcon }[] = [
-  { id: "result", label: "Result", icon: FileSearch },
-  { id: "graph", label: "Route map", icon: Network },
-  { id: "verification", label: "Verification", icon: ShieldCheck },
-  { id: "debate", label: "Debate", icon: MessagesSquare },
+  { id: "route", label: "Route", icon: RouteIcon },
+  { id: "method", label: "Method", icon: ListOrdered },
+  { id: "reasoning", label: "Reasoning", icon: Lightbulb },
+  { id: "lab", label: "Lab notes", icon: FlaskConical },
 ];
 
 export default function App() {
@@ -109,14 +109,14 @@ export default function App() {
 
       <main className="min-h-0 flex-1 overflow-hidden">
         <ErrorBoundary name={s.tab} key={s.tab}>
-          {s.tab === "result" && (
-            <div className="h-full overflow-y-auto pb-28">
-              <ResultView onRetry={(t) => start(t, { blind: s.blind })} />
-            </div>
+          {s.tab === "route" && <RouteTab onRetry={(t) => start(t, { blind: s.blind })} />}
+          {s.tab === "method" && (
+            <div className="h-full overflow-y-auto pb-28"><MethodView /></div>
           )}
-          {s.tab === "graph" && <GraphView />}
-          {s.tab === "verification" && <VerificationView />}
-          {s.tab === "debate" && <DebateView />}
+          {s.tab === "reasoning" && <ReasoningView />}
+          {s.tab === "lab" && (
+            <div className="h-full overflow-y-auto pb-28"><LabNotesView /></div>
+          )}
         </ErrorBoundary>
       </main>
 

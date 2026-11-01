@@ -27,7 +27,7 @@ export function MoleculeChip({ s, id, tag }: { s: S; id: string; tag: string }) 
   if (!m) return null;
   return (
     <button
-      onClick={() => { s.select({ molecule: id, step: null }); s.setTab("graph"); }}
+      onClick={() => { s.select({ molecule: id, step: null }); s.setTab("route"); }}
       className="group flex w-[156px] flex-col items-center rounded-card border border-hairline bg-surface p-2
                  text-center transition-colors hover:border-ink/25"
       title="Show on the route map"
@@ -256,7 +256,7 @@ export function StepCard({ s, step, buy, target, finished }: {
         {objections.map((o) => (
           <button
             key={o.id}
-            onClick={() => { s.select({ step: step.id }); s.setTab("debate"); }}
+            onClick={() => { s.select({ step: step.id }); s.setTab("reasoning"); }}
             className="mt-3 flex w-full items-start gap-2 rounded-chip px-3 py-2 text-left text-[13px] leading-relaxed
                        transition-colors hover:brightness-95"
             style={{ background: TONE.warn.bg, color: TONE.warn.fg }}
@@ -282,7 +282,7 @@ export function StepCard({ s, step, buy, target, finished }: {
           ) : <span />}
           <button
             className="inline-flex items-center gap-1 text-[12.5px] text-muted hover:text-ink"
-            onClick={() => { s.select({ step: step.id, node: null }); s.setTab("verification"); }}
+            onClick={() => { s.select({ step: step.id, node: null }); s.setTab("reasoning"); }}
           >
             Why we trust this step <ArrowRight size={13} strokeWidth={2} aria-hidden />
           </button>
