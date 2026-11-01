@@ -24,7 +24,7 @@ function headline(label: string, n: number, buyable: boolean) {
     case "Feasible":
       return `Can be made in ${steps}${from}.`;
     case "Plausible":
-      return `Probably makeable in ${steps}${from}.`;
+      return `${article(n)} credible ${n}-step route${from}.`;
     case "Uncertain":
       return `${article(n)} ${n}-step route exists, but part of it is unproven.`;
     default:
