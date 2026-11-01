@@ -24,7 +24,7 @@ from pydantic import BaseModel, Field
 from ..config import settings
 from ..events import MetaCall, current_agent
 from ..store import get_store, hash_key
-from ..termlog import blue, dim, green, search_line
+from ..termlog import blue, dim, green, search_line, wire
 
 CACHE_NS = "llm.v1"
 
@@ -35,6 +35,9 @@ CACHE_NS = "llm.v1"
 # it boots, and a logger that relies on the root handler goes silent depending
 # on import order. This log is demo evidence, so it has to be certain.
 log = logging.getLogger("orchanium.meta")
+# one request/response pair is printed in full per run, as evidence of what a
+# live call actually looks like; after that the compact lines carry it
+_shown_full = False
 if not log.handlers:
     _h = logging.StreamHandler(sys.stdout)
     _h.setFormatter(logging.Formatter("%(message)s"))
@@ -288,6 +291,18 @@ class MetaClient:
         agent = current_agent.get()
         log.info("%s %s %s %s", dim("meta →"), blue(model), (agent or "-").ljust(13),
                  dim("search on" if web_search else "search off"))
+        global _shown_full
+        show_full = not _shown_full and web_search
+        if show_full:
+            _shown_full = True
+            inp = body.get("input")
+            if isinstance(inp, list):
+                inp = " ".join(str((m or {}).get("content", "")) for m in inp if isinstance(m, dict))
+            wire(f"{settings.meta_base_url}/responses", json.dumps({
+                "model": model,
+                "tools": [t.get("type") for t in (body.get("tools") or [])],
+                "input": (str(inp or "")[:150] + "\u2026"),
+            }, indent=1)[:600], "req")
         last, t0 = None, time.time()
         for i in range(attempts):
             try:
@@ -301,6 +316,15 @@ class MetaClient:
                     calls = [o for o in (data.get("output") or [])
                              if o.get("type") == "web_search_call"]
                     searches = len(calls)
+                    if show_full:
+                        out = [{"type": o.get("type"),
+                                **({"query": (o.get("action") or {}).get("query")}
+                                   if o.get("type") == "web_search_call" else
+                                   {"text": _parse_output(data)[0][:120] + "\u2026"})}
+                               for o in (data.get("output") or [])[:3]]
+                        wire(f"{round(time.time() - t0, 1)}s", json.dumps(
+                            {"id": data.get("id"), "output": out,
+                             "usage": usage}, indent=1)[:700], "res")
                     for o in calls:            # the query the model actually sent
                         q = (o.get("action") or {}).get("query")
                         if q:

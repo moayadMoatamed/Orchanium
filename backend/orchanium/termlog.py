@@ -148,6 +148,20 @@ def agent_line(agent: str, text: str, level: str = "info") -> None:
         log.info("%s%s", head if i == 0 else " " * len(plain), body if i == 0 else line.strip())
 
 
+def wire(label: str, body: str, kind: str = "req") -> None:
+    """One request/response pair printed in full, once per run.
+
+    Their guidance names "the API response" as one way to show a live call, so
+    the run shows exactly one unedited exchange: what went out, what came back.
+    In blind mode the body is already scrubbed before it reaches here.
+    """
+    log = _log()
+    mark = _c("38;5;75", "POST") if kind == "req" else _c("38;5;71", "200 OK")
+    log.info("  %s %s", mark, dim(label))
+    for line in body.splitlines():
+        log.info("    %s", dim(line[:WIDTH]))
+
+
 def search_line(agent: str, query: str, results: int) -> None:
     """The query the model actually sent, and how much came back.
 
