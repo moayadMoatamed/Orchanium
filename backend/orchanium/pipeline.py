@@ -26,8 +26,8 @@ from .agents import debate as debate_agent
 from .agents import decomposer, planner, reporter
 from .agents import verdict as verdict_agent
 from .events import RouteEvt
-from .termlog import PHASES, phase
 from .termlog import note as log_note
+from .termlog import phase
 
 
 class RunState(TypedDict, total=False):
@@ -47,7 +47,7 @@ def build(orch: Any):
     budget that every phase shares."""
 
     async def plan(state: RunState) -> RunState:
-        phase(*PHASES["plan"])
+        phase("plan")
         ctx = orch.ctx
         async with ctx.agent("planner", "planner", "Planner") as h:
             await planner.run(ctx, orch.query)
@@ -61,7 +61,7 @@ def build(orch: Any):
         return {}
 
     async def decompose(state: RunState) -> RunState:
-        phase(*PHASES["decompose"])
+        phase("decompose")
         ctx, g = orch.ctx, orch.g
         async with ctx.agent("decomposer", "planner", "Decomposer (RDKit)") as h:
             await decomposer.run(ctx, g)
@@ -69,7 +69,7 @@ def build(orch: Any):
         return {"live": [x.id for x in g.hypotheses() if x.critic.verdict != "block"]}
 
     async def evidence(state: RunState) -> RunState:
-        phase(*PHASES["evidence"])
+        phase("evidence")
         # research may not spend what the debate and the report still need
         orch.budget.reserve = 0.5
         live = state.get("live") or []
@@ -81,7 +81,7 @@ def build(orch: Any):
         return {}
 
     async def debate(state: RunState) -> RunState:
-        phase(*PHASES["debate"])
+        phase("debate")
         ctx, note = orch.ctx, None
         log_note(f"{orch.debate_rounds} round(s): Builder proposes, Skeptic attacks, repeat")
         orch.budget.reserve = 0.1
@@ -98,7 +98,7 @@ def build(orch: Any):
         return {"debate": result, "review_note": note}
 
     async def decide(state: RunState) -> RunState:
-        phase(*PHASES["verdict"])
+        phase("verdict")
         ctx, g = orch.ctx, orch.g
         orch.budget.reserve = 0.0
         note = state.get("review_note") or (None if orch.debate_rounds > 0 else "debate disabled")
@@ -112,7 +112,7 @@ def build(orch: Any):
         return {"verdict": v}
 
     async def report(state: RunState) -> RunState:
-        phase(*PHASES["report"])
+        phase("report")
         ctx, g, v = orch.ctx, orch.g, state.get("verdict")
         text = ""
         async with ctx.agent("reporter", "reporter", "Reporter") as h:
