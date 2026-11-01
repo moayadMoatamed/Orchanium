@@ -37,6 +37,7 @@ SUPPORT_STEP = 0.05       # per corroborating precedent, up to SUPPORT_MAX of th
 SUPPORT_MAX = 3
 RISK_WARNED = 0.15        # the chemistry critic raised something
 RISK_UNGUARDED = 0.15     # groups that could react in the wrong place, unprotected
+OBJECTION_FACTOR = 0.75   # what a standing objection leaves of the step it is about
 WEAKEST_WEIGHT = 0.5      # how much the worst step counts against the average
 INCOMPLETE_CAP = 0.35     # a route you cannot start is not a confident route
 
@@ -60,8 +61,15 @@ def class_prior(classes: list[str]) -> float:
     return max((priors.get(c, 0.0) for c in classes), default=0.0)
 
 
-def step_evidence(g: KnowledgeGraph, hyp_id: str, precedent_score: float | None) -> float:
-    """What the evidence says about one step, in [0.02, 0.98]."""
+def step_evidence(g: KnowledgeGraph, hyp_id: str, precedent_score: float | None,
+                  majors: int = 0) -> float:
+    """What the evidence says about one step, in [0.02, 0.98].
+
+    A standing objection counts against the step it is about, not against the
+    route as a whole. Deducting a flat amount per objection route-wide punished
+    long routes twice over, because more steps attract more objections: a
+    seven-step route could lose more to objections than all its evidence was
+    worth, and land on the floor."""
     h = g.reactions.get(hyp_id)
     classes = h.classes if h else []
     base = max(precedent_score or 0.0, class_prior(classes), NO_PRECEDENT if not classes else 0.0)
@@ -79,17 +87,20 @@ def step_evidence(g: KnowledgeGraph, hyp_id: str, precedent_score: float | None)
     if critic and any(c.status == "warn" and c.name == "fg_conflicts" for c in (critic.checks or [])):
         risk -= RISK_UNGUARDED
 
+    risk *= OBJECTION_FACTOR ** max(0, majors)
     return round(max(0.02, min(0.98, base * support * risk)), 3)
 
 
-def route_confidence(evidence: list[float], *, major: int, fatal_evidenced: int,
-                     gaps: int, lab_failed: int) -> float:
-    """A chain is judged by its average link and its weakest one."""
+def route_confidence(evidence: list[float], *, orphan_objections: int = 0, fatal_evidenced: int = 0,
+                     gaps: int = 0, lab_failed: int = 0) -> float:
+    """A chain is judged by its average link and its weakest one. Objections
+    have already been charged to their own step; only ones that name no step in
+    the route are charged here."""
     if not evidence:
         return 0.02
     average = sum(evidence) / len(evidence)
     blended = (1 - WEAKEST_WEIGHT) * average + WEAKEST_WEIGHT * min(evidence)
-    conf = blended - 0.08 * major - 0.2 * fatal_evidenced - 0.1 * gaps - 0.25 * lab_failed
+    conf = blended - 0.08 * orphan_objections - 0.2 * fatal_evidenced - 0.1 * gaps - 0.25 * lab_failed
     if gaps:
         # A gap means a precursor can be neither bought nor made by this route,
         # so however well evidenced the steps are, nobody can run it as written.
