@@ -38,6 +38,7 @@ SUPPORT_MAX = 3
 RISK_WARNED = 0.15        # the chemistry critic raised something
 RISK_UNGUARDED = 0.15     # groups that could react in the wrong place, unprotected
 WEAKEST_WEIGHT = 0.5      # how much the worst step counts against the average
+INCOMPLETE_CAP = 0.35     # a route you cannot start is not a confident route
 
 
 @lru_cache(maxsize=1)
@@ -89,4 +90,11 @@ def route_confidence(evidence: list[float], *, major: int, fatal_evidenced: int,
     average = sum(evidence) / len(evidence)
     blended = (1 - WEAKEST_WEIGHT) * average + WEAKEST_WEIGHT * min(evidence)
     conf = blended - 0.08 * major - 0.2 * fatal_evidenced - 0.1 * gaps - 0.25 * lab_failed
+    if gaps:
+        # A gap means a precursor can be neither bought nor made by this route,
+        # so however well evidenced the steps are, nobody can run it as written.
+        # That is a different kind of problem from thin evidence, and deducting
+        # a little per gap let a one-step route with a perfect precedent come
+        # out at 88% while its only starting material was unobtainable.
+        conf = min(conf, INCOMPLETE_CAP)
     return round(max(0.02, min(0.97, conf)), 2)

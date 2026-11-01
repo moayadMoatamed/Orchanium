@@ -118,10 +118,13 @@ export function reactionPlain(cls: string | undefined): string {
   return REACTION_PLAIN[cls] ?? cls;
 }
 
-/** How confident the verdict is, in words. */
-export function confidenceWords(c: number): string {
-  if (c >= 0.85) return "high confidence";
-  if (c >= 0.65) return "good confidence";
+/** How confident the verdict is, in words. A doubtful verdict never gets a
+ *  confident word: "Uncertain · high confidence" tells a reader two opposite
+ *  things and makes them trust neither. */
+export function confidenceWords(c: number, label?: string): string {
+  const doubtful = label === "Uncertain" || label === "Unlikely";
+  if (c >= 0.85 && !doubtful) return "high confidence";
+  if (c >= 0.65 && !doubtful) return "good confidence";
   if (c >= 0.45) return "moderate confidence";
   return "low confidence";
 }
