@@ -12,8 +12,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
-from .chem import rdkit_utils as rd
 from . import memory
+from .chem import rdkit_utils as rd
 from .config import settings
 from .events import Event
 from .lab import LabNote, NoteRejected, add_note
@@ -97,7 +97,7 @@ async def stream(
             while True:
                 try:
                     evt = await asyncio.wait_for(queue.get(), timeout=HEARTBEAT_S)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     yield ": keepalive\n\n"      # keeps proxies from closing an idle stream
                     continue
                 if evt is None:

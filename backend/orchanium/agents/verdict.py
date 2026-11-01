@@ -101,7 +101,7 @@ def decide(ctx: RunContext, g: KnowledgeGraph, debate: DebateResult | None,
         label, reasons = "Uncertain", reasons + ["no route could be assembled from the graph"]
     elif "blocked" in grades or fatal_evidenced:
         label = "Unlikely"
-        reasons += [f"step blocked by the chemistry critic" for g_ in grades if g_ == "blocked"]
+        reasons += ["step blocked by the chemistry critic" for g_ in grades if g_ == "blocked"]
         reasons += [f"fatal objection backed by a reported failure: {o.claim[:120]}" for o in fatal_evidenced]
     elif "none" in grades or gaps or weak + major >= 3:
         label = "Uncertain"

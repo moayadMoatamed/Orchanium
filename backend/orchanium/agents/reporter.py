@@ -82,7 +82,7 @@ def build_data(g: KnowledgeGraph, verdict: Verdict, debate: DebateResult | None)
 def template_report(data: dict) -> str:
     """Deterministic report from the verified data; used when the LLM is unavailable."""
     v = data["verdict"]
-    lines = [f"## Verdict", f"**{v['label']}** · confidence {v['confidence']:.0%}", ""]
+    lines = ["## Verdict", f"**{v['label']}** · confidence {v['confidence']:.0%}", ""]
     lines += [f"- {r}" for r in v["reasons"]] + ["", "## Proposed route", ""]
     if data["starting_materials"]:
         lines += [f"Starting materials: {', '.join(data['starting_materials'])}", ""]

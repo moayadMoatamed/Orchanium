@@ -33,7 +33,7 @@ async def _run(query: str, blind: bool, hide: list[str], web: int, rounds: int) 
     orch = Orchestrator(query, blind=blind or bool(hide), hidden=hide, web_budget=web, debate_rounds=rounds,
                         extra_sink=_print_event)
     res = await orch.run()
-    g, v, s = res["graph"], res["verdict"], res["summary"]
+    v, s = res["verdict"], res["summary"]
     print("\n" + "=" * 78)
     print(f"run {res['run_id']}: {res['status']}  blind={blind}  cost=${s['cost']['usd']:.3f}  "
           f"llm_calls={s['cost']['llm_calls']} searches={s['cost']['searches']}  clues={s['clues']}")

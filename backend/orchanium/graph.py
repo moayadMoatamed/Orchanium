@@ -93,6 +93,17 @@ class Route(BaseModel):
     metrics: dict = Field(default_factory=dict)
 
 
+def _walk_route(node: dict, steps: list, leaves: list, gaps: list) -> None:
+    """Depth-first over a route tree: the steps in the order they must be run,
+    and the molecules it ends on, split into buyable leaves and gaps."""
+    if "rxn" not in node:
+        (gaps if node["leaf"] == "gap" else leaves).append(node["mol"])
+        return
+    for child in node["children"]:
+        _walk_route(child, steps, leaves, gaps)
+    steps.append(node["step"])
+
+
 class KnowledgeGraph:
     def __init__(self):
         self.molecules: dict[str, Molecule] = {}
@@ -209,15 +220,7 @@ class KnowledgeGraph:
         out = []
         for cost, tree in cands[:k]:
             steps, leaves, gaps = [], [], []
-
-            def visit(n):
-                if "rxn" not in n:
-                    (gaps if n["leaf"] == "gap" else leaves).append(n["mol"])
-                    return
-                for c in n["children"]:
-                    visit(c)
-                steps.append(n["step"])
-            visit(tree)
+            _walk_route(tree, steps, leaves, gaps)
             out.append(Route(route_id=f"route-{len(out) + 1}", rank=len(out) + 1, steps=steps,
                              cost=round(cost, 3), leaves=list(dict.fromkeys(leaves)),
                              gaps=list(dict.fromkeys(gaps)), metrics=self.metrics(steps)))

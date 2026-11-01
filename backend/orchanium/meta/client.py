@@ -12,7 +12,8 @@ import asyncio
 import copy
 import json
 import time
-from typing import Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx
@@ -308,7 +309,7 @@ class MetaClient:
     async def run_tools(
         self,
         input: list,
-        tools: list["Tool"],
+        tools: list[Tool],
         *,
         instructions: str | None = None,
         schema: type[BaseModel] | None = None,

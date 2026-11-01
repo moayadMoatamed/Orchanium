@@ -10,6 +10,7 @@ from ..graph import KnowledgeGraph
 from ..meta.client import normalize_url
 from ..models import Clue, ClueFindings, Conditions, ResearchNeed, SourceRef
 
+
 class WebSource(ClueSource):
     name = "web"
     label = "Web research (Muse Spark + web_search)"

@@ -153,7 +153,6 @@ def molblock_3d(smiles: str, seed: int = 0xC0FFEE) -> str | None:
 
 
 def png_bytes(smiles: str, size: int = 300) -> bytes | None:
-    from rdkit.Chem import Draw
     m = parse(smiles)
     if m is None:
         return None

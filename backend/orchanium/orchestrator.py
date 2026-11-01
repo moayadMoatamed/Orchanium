@@ -14,16 +14,16 @@ from __future__ import annotations
 import asyncio
 import time
 import uuid
-from typing import Callable
+from collections.abc import Callable
 
 from . import memory, pipeline
-from .agents import citation_checker
-from .agents.graph_tools import _hyp_brief
+from .agents import citation_checker, decomposer
+from .agents.graph_tools import step_brief
 from .chem.pubchem import synonyms
 from .clues import gather, link_and_emit, need_for
 from .config import settings
-from .events import CostEvt, Event, EventBus
 from .context import RunContext
+from .events import CostEvt, Event, EventBus
 from .graph import KnowledgeGraph
 from .memory import MemorySource
 from .meta.client import Budget, MetaClient
@@ -138,7 +138,7 @@ class Orchestrator:
             return {"error": "research budget for this debate is used up; argue from existing evidence"}
         self.debate_research_left -= 1
         clues = await self.research_web(hyp_id, focus)
-        return {"new_clues": [c.id for c in clues], "step_now": _hyp_brief(self.g, hyp_id)}
+        return {"new_clues": [c.id for c in clues], "step_now": step_brief(self.g, hyp_id)}
 
     async def debate_propose(self, product_id: str, resolved: list, reaction_class: str, notes: list[str]) -> dict:
         ctx, g = self.ctx, self.g
@@ -150,7 +150,7 @@ class Orchestrator:
                 if source:
                     await gather(ctx, g, source, need_for(g, h.id), agent_id)
             link_and_emit(ctx, g, [h.id])
-        return {"added": _hyp_brief(g, h.id), "note": "critic: " + h.critic.summary}
+        return {"added": step_brief(g, h.id), "note": "critic: " + h.critic.summary}
 
     # ------------------------------------------------------------- run
     async def run(self) -> dict:
