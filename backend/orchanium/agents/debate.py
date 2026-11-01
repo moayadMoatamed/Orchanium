@@ -18,7 +18,7 @@ from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
 
 from ..context import RunContext, prompt
-from ..events import ProvNode
+from ..events import ProvNode, current_agent
 from ..graph import KnowledgeGraph
 from .graph_tools import build_tools, node_kind
 
@@ -166,6 +166,7 @@ def _build_flow(d: _Deps):
     async def builder(state: DebateState) -> DebateState:
         rnd, transcript = state["round"], state["transcript"]
         d.ctx.agent_status("builder", "reasoner", "Builder", "running", f"round {rnd}")
+        tok = current_agent.set(f"builder r{rnd}")      # so its model calls are named in the log
         said = (f"Target: {d.target.name} (id {d.target.id}). Round {rnd} of {d.rounds}.\n"
                 + ("Debate so far:\n" + json.dumps(transcript, indent=1) if transcript else
                    "Start by exploring the graph, then propose your route."))
@@ -180,6 +181,7 @@ def _build_flow(d: _Deps):
                + [(f"re-{r.objection_id}", hyp_of.get(r.objection_id), r.plain, r.response, r.cited_ids,
                    "warn" if r.concede else "pass", {"objection_id": r.objection_id, "concede": r.concede})
                   for r in bt.rebuttals])
+        current_agent.reset(tok)
         d.ctx.agent_status("builder", "reasoner", "Builder", "done", bt.summary[:160])
         d.ctx.log("builder", bt.summary)
         return {"builders": state["builders"] + [bt], "transcript": transcript + [{"builder": bt.model_dump()}]}
@@ -187,6 +189,7 @@ def _build_flow(d: _Deps):
     async def skeptic(state: DebateState) -> DebateState:
         rnd, transcript = state["round"], state["transcript"]
         d.ctx.agent_status("skeptic", "reasoner", "Skeptic", "running", f"round {rnd}")
+        tok = current_agent.set(f"skeptic r{rnd}")      # so its model calls are named in the log
         said = (f"Target: {d.target.name} (id {d.target.id}). Round {rnd} of {d.rounds}. "
                 + ("This is the final round: keep only objections the evidence sustains.\n"
                    if rnd == d.rounds else "\n")
@@ -199,6 +202,7 @@ def _build_flow(d: _Deps):
                                  "fail" if o.severity == "fatal" else "warn" if o.severity == "major" else "skip",
                                  {"objection_id": o.id, "severity": o.severity})
                                 for o in st.objections])
+        current_agent.reset(tok)
         d.ctx.agent_status("skeptic", "reasoner", "Skeptic", "done", st.summary[:160])
         d.ctx.log("skeptic", st.summary)
         return {"skeptics": state["skeptics"] + [st], "round": rnd + 1,
