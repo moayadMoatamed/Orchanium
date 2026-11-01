@@ -64,3 +64,12 @@ def test_penalties_still_apply_and_the_floor_holds():
     assert objected == round(base - 0.16, 2)
     assert C.route_confidence([0.3], major=0, fatal_evidenced=0, gaps=0, lab_failed=2) == 0.02
     assert C.route_confidence([], major=0, fatal_evidenced=0, gaps=0, lab_failed=0) == 0.02
+
+
+def test_a_route_you_cannot_start_is_never_confident():
+    """A gap means a precursor can be neither bought nor made here, so however
+    well evidenced the steps are, nobody can run the route as written."""
+    perfect = C.route_confidence([0.98], major=0, fatal_evidenced=0, gaps=0, lab_failed=0)
+    stranded = C.route_confidence([0.98], major=0, fatal_evidenced=0, gaps=1, lab_failed=0)
+    assert perfect > 0.9
+    assert stranded <= C.INCOMPLETE_CAP

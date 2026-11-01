@@ -40,6 +40,24 @@ function countHint(c: ReturnType<typeof stepCount>, buy: number) {
   return `${plural(c.reactions, "bond-forming reaction")} plus ${plural(c.protection, "protection or deprotection step")}, ${base}.`;
 }
 
+/** Why the verdict came out this way, in the run's own terms. The canned note
+ *  per label was misleading whenever the real problem was something else: a
+ *  route whose only missing piece is an unobtainable starting material was
+ *  still told it had "a step that has never been shown to work". */
+function whyThisLabel(s: S, label: VerdictLabel): string {
+  const gaps = s.report?.data.verdict.gaps ?? [];
+  if (gaps.length) {
+    const names = gaps.map((g) => shortName(g)).join(", ");
+    return `Every step is accounted for, but ${plural(gaps.length, "ingredient")} cannot be bought `
+      + `or made by this route: ${names}. Until that is solved, the route cannot be run as written.`;
+  }
+  const reason = s.report?.data.verdict.reasons?.[0];
+  if (reason) return firstSentence(reason).replace(/^\w/, (c) => c.toUpperCase()) + ".";
+  return VERDICT[label].note;
+}
+
+const shortName = (n: string) => (n.length > 48 ? `${n.slice(0, 46)}…` : n);
+
 function Revisions({ revisions }: { revisions: Revision[] }) {
   const latest = revisions[revisions.length - 1];
   return (
@@ -212,7 +230,7 @@ export function ResultView({ onRetry }: { onRetry: (target: string) => void }) {
           <p className="mt-3 text-[14px] leading-relaxed text-muted">
             {labFailed.length
               ? `Step ${labFailed.map((x) => x.index).join(" and ")} failed in your lab, so it needs different conditions or a different approach.`
-              : meta.note}
+              : whyThisLabel(s, label)}
             {s.blind && " Blind mode was on: every source that mentions this molecule was hidden, so the route was worked out, not looked up."}
           </p>
           <div className="mt-5 flex gap-2">
@@ -254,7 +272,7 @@ export function ResultView({ onRetry }: { onRetry: (target: string) => void }) {
                 <div className="h-full rounded-full" style={{ width: `${v.confidence * 100}%`, background: tone.fg }} />
               </div>
               <div className="mt-1.5 text-[12.5px] text-muted">
-                {confidenceWords(v.confidence)} ({Math.round(v.confidence * 100)}%)
+                {confidenceWords(v.confidence, label)} ({Math.round(v.confidence * 100)}%)
               </div>
             </>
           )}
