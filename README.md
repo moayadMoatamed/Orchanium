@@ -19,7 +19,7 @@ Built for the Meta Global AI Developer Hackathon, on the Meta Model API (Muse Sp
 and tool use, SAM 3.1 for reading structures out of figures).
 
 This is a ground-up rebuild of an earlier proof of concept,
-[Orchanium POC](https://github.com/moayadMoatamed/Orchanium). That version proposed disconnections
+[Orchanium POC](https://github.com/moayadMoatamed/Orchanium-POC). That version proposed disconnections
 with a model and validated them with RDKit. What is new here is everything the answer now rests on:
 literature clue-mining into a knowledge graph, precedent grading, the Builder/Skeptic debate, a
 computed verdict, a knowledge graph that outlives the run, lab notes that outrank published work,
