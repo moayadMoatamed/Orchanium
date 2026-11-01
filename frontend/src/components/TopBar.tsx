@@ -1,25 +1,8 @@
 import { EyeOff, Search } from "lucide-react";
+import { Logo } from "./Logo";
 import { useEffect, useState } from "react";
 import { elapsed, useRun } from "../state/runStore";
 import { Mono } from "./primitives";
-
-function Logo() {
-  return (
-    <div className="flex items-center gap-2.5 pr-1">
-      <svg width="26" height="26" viewBox="0 0 26 26" aria-hidden>
-        <path
-          d="M13 1.6 23 7.3v11.4L13 24.4 3 18.7V7.3z"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.6"
-          strokeLinejoin="round"
-        />
-        <circle cx="13" cy="13" r="2.9" fill="currentColor" />
-      </svg>
-      <span className="text-[17px] font-semibold tracking-[-0.01em]">Orchanium</span>
-    </div>
-  );
-}
 
 function statusLine(s: ReturnType<typeof useRun.getState>, secs: number) {
   const mins = secs >= 60 ? `${Math.floor(secs / 60)} min` : `${Math.round(secs)}s`;

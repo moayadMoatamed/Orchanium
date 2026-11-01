@@ -200,7 +200,7 @@ function Inspector({ s }: { s: S }) {
         {onRoute && (
           <button
             className="mt-4 inline-flex items-center gap-1 text-[13px] text-accent hover:underline"
-            onClick={() => { s.select({ step: rx.id, node: null }); s.setTab("verification"); }}
+            onClick={() => { s.select({ step: rx.id, node: null }); s.setTab("reasoning"); }}
           >
             Why we trust this step <ArrowRight size={13} strokeWidth={2} aria-hidden />
           </button>
