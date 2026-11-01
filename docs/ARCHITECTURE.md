@@ -146,10 +146,34 @@ source is visibly unsupported rather than quietly believed.
 - every step `direct` or `analog`, no major objection standing → **Feasible**
 - otherwise → **Plausible**
 
-Confidence is arithmetic on precedent scores, with deductions for objections,
-gaps and lab failures. A route that was never reviewed by the Skeptic is capped
-at Plausible, and the reason is stated. **The debate informs the verdict; it can
-never override a computed grade.**
+The **label** is about whether evidence exists. The **confidence number**
+(`agents/confidence.py`) is about how much the evidence says, and three
+deterministic things feed it:
+
+| What counts | Why |
+|---|---|
+| how closely a published reaction matches | the strongest evidence there is |
+| what kind of reaction the step is | knowing a step is an amide coupling is evidence it can be made to work, even with nothing published close to it |
+| the six chemistry checks | a step whose atoms balance and whose groups do not clash is sounder than one that scrapes through |
+
+The class prior is measured from the patent index itself
+(`scripts/build_class_priors.py`) and capped well below a real precedent, so it
+can never stand in for one. It measures how routinely chemists reach for a
+class, which is a proxy for reliability, not a measurement of it.
+
+This matters most for the molecules Orchanium exists for. A compound nobody has
+made has no close precedent for its final steps **by definition**, so scoring on
+resemblance alone punished novelty itself — a route of textbook couplings to a
+new target scored the same as one nobody has any basis for.
+
+A route is then judged on both its average step and its **weakest** one, because
+a chain strong on average can still have a link nobody can make. Objections,
+gaps and lab failures deduct as before. A route never reviewed by the Skeptic is
+capped at Plausible, and the reason is stated.
+
+**The Builder's argument never adds to the number.** The Skeptic's objections
+subtract, because they are anchored to cited evidence. **The debate informs the
+verdict; it can never override a computed grade.**
 
 ### report — say it in a chemist's language
 
