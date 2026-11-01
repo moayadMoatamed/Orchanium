@@ -1,13 +1,19 @@
 """Builder vs Skeptic debate over the knowledge graph.
 
-Each turn is a Muse Spark tool loop (graph tools) that ends in a structured
+The debate is a LangGraph cycle:
+
+    builder → skeptic → another round? → builder … → stop
+
+Each turn is a tool loop over the graph tools that ends in a structured
 message. Code validates every cited id; unsupported claims are struck out.
-The debate informs the verdict but cannot override computed grades."""
+The debate informs the verdict but can never override a computed grade."""
 from __future__ import annotations
 
 import json
-from typing import Awaitable, Callable, Literal
+from dataclasses import dataclass, field
+from typing import Any, Awaitable, Callable, Literal, TypedDict
 
+from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
 
 from ..context import RunContext, prompt
@@ -111,80 +117,126 @@ class DebateResult(BaseModel):
     struck_citations: list[str]
 
 
+class DebateState(TypedDict, total=False):
+    """One round of argument. The turns accumulate so each agent reads what has
+    been said; everything else the debate needs sits on `_Deps`."""
+
+    round: int
+    transcript: list[dict]
+    builders: list[BuilderTurn]
+    skeptics: list[SkepticTurn]
+
+
+@dataclass
+class _Deps:
+    """What both sides share for the length of one debate."""
+
+    ctx: RunContext
+    g: KnowledgeGraph
+    rounds: int
+    skeptic_model: str | None
+    common: str
+    b_tools: list
+    s_tools: list
+    target: Any
+    struck: list[str] = field(default_factory=list)
+
+    def logger(self, agent: str):
+        def log(name: str, args: dict, result) -> None:
+            self.ctx.log(agent, f"{name}({json.dumps(args)[:120]})")
+        return log
+
+    def emit(self, agent: str, turn_no: int,
+             items: list[tuple[str, str | None, str, str, list[str], str, dict]]) -> None:
+        """items: (key, hypothesis_id, plain, technical text, cited_ids, status, extra details)"""
+        for key, hyp, plain, text, cited, status, extra in items:
+            ok, bad = _valid(self.g, cited)
+            self.struck.extend(bad)
+            parents = [p for p in (_prov_ref(self.g, i, hyp) for i in ok) if p and p in self.ctx.prov_nodes]
+            self.ctx.prov(ProvNode(id=f"debate:{agent}:{turn_no}:{key}", node_type="debate", step_id=hyp,
+                                   agent_id=agent, parent_ids=parents, status=status,
+                                   summary=(plain or text)[:220],
+                                   details={"agent": agent, "turn": turn_no, "plain": plain, "text": text,
+                                            "cited_ids": ok, "struck_citations": bad, **extra}))
+
+
+def _build_flow(d: _Deps):
+    """builder → skeptic → another round, or stop. The cycle is the debate."""
+
+    async def builder(state: DebateState) -> DebateState:
+        rnd, transcript = state["round"], state["transcript"]
+        d.ctx.agent_status("builder", "reasoner", "Builder", "running", f"round {rnd}")
+        said = (f"Target: {d.target.name} (id {d.target.id}). Round {rnd} of {d.rounds}.\n"
+                + ("Debate so far:\n" + json.dumps(transcript, indent=1) if transcript else
+                   "Start by exploring the graph, then propose your route."))
+        bt = (await d.ctx.client.run_tools([{"role": "user", "content": said}], d.b_tools,
+                                           instructions=d.common + "\n\n" + prompt("builder"), schema=BuilderTurn,
+                                           effort="medium", on_call=d.logger("builder"))).parsed
+        hyp_of = {o.id: o.hypothesis_id for t in state["skeptics"] for o in t.objections}
+        d.emit("builder", rnd, [(a.hypothesis_id, a.hypothesis_id, a.plain, a.claim,
+                                 a.cited_ids + [i for op in a.procedure for i in op.cited_ids], "pass",
+                                 {"name": a.name, "procedure": [op.model_dump() for op in a.procedure]})
+                                for a in bt.arguments]
+               + [(f"re-{r.objection_id}", hyp_of.get(r.objection_id), r.plain, r.response, r.cited_ids,
+                   "warn" if r.concede else "pass", {"objection_id": r.objection_id, "concede": r.concede})
+                  for r in bt.rebuttals])
+        d.ctx.agent_status("builder", "reasoner", "Builder", "done", bt.summary[:160])
+        d.ctx.log("builder", bt.summary)
+        return {"builders": state["builders"] + [bt], "transcript": transcript + [{"builder": bt.model_dump()}]}
+
+    async def skeptic(state: DebateState) -> DebateState:
+        rnd, transcript = state["round"], state["transcript"]
+        d.ctx.agent_status("skeptic", "reasoner", "Skeptic", "running", f"round {rnd}")
+        said = (f"Target: {d.target.name} (id {d.target.id}). Round {rnd} of {d.rounds}. "
+                + ("This is the final round: keep only objections the evidence sustains.\n"
+                   if rnd == d.rounds else "\n")
+                + "Debate so far:\n" + json.dumps(transcript, indent=1))
+        st = (await d.ctx.client.run_tools([{"role": "user", "content": said}], d.s_tools,
+                                           instructions=d.common + "\n\n" + prompt("skeptic"), schema=SkepticTurn,
+                                           effort="medium", model=d.skeptic_model,
+                                           on_call=d.logger("skeptic"))).parsed
+        d.emit("skeptic", rnd, [(o.id, o.hypothesis_id, o.plain, o.claim, o.cited_ids,
+                                 "fail" if o.severity == "fatal" else "warn" if o.severity == "major" else "skip",
+                                 {"objection_id": o.id, "severity": o.severity})
+                                for o in st.objections])
+        d.ctx.agent_status("skeptic", "reasoner", "Skeptic", "done", st.summary[:160])
+        d.ctx.log("skeptic", st.summary)
+        return {"skeptics": state["skeptics"] + [st], "round": rnd + 1,
+                "transcript": transcript + [{"skeptic": st.model_dump()}]}
+
+    def another_round(state: DebateState) -> str:
+        return "builder" if state["round"] <= d.rounds else END
+
+    flow = StateGraph(DebateState)
+    flow.add_node("builder", builder)
+    flow.add_node("skeptic", skeptic)
+    flow.add_edge(START, "builder")
+    flow.add_edge("builder", "skeptic")
+    flow.add_conditional_edges("skeptic", another_round, {"builder": "builder", END: END})
+    return flow.compile()
+
+
 async def run(ctx: RunContext, g: KnowledgeGraph,
               research: Callable[[str, str], Awaitable[dict]],
               propose: Callable[..., Awaitable[dict]], rounds: int = 2,
               skeptic_model: str | None = None) -> DebateResult:
-    common = prompt("debate_common")
-    b_tools = build_tools(g, research, propose,
-                          {"overview", "get_node", "precedents", "find_clues", "request_research", "propose_step"})
-    s_tools = build_tools(g, research, propose,
-                          {"overview", "get_node", "precedents", "find_clues", "request_research"})
-    target = g.molecules[g.target_id]
-    transcript: list[dict] = []
-    builders: list[BuilderTurn] = []
-    skeptics: list[SkepticTurn] = []
-    struck: list[str] = []
-
-    def tool_logger(agent: str):
-        def log(name: str, args: dict, result) -> None:
-            brief = json.dumps(args)[:120]
-            ctx.log(agent, f"{name}({brief})")
-        return log
-
-    def emit(agent: str, turn_no: int, items: list[tuple[str, str | None, str, str, list[str], str, dict]]):
-        """items: (key, hypothesis_id, plain, technical text, cited_ids, status, extra details)"""
-        for key, hyp, plain, text, cited, status, extra in items:
-            ok, bad = _valid(g, cited)
-            struck.extend(bad)
-            parents = [p for p in (_prov_ref(g, i, hyp) for i in ok) if p and p in ctx.prov_nodes]
-            ctx.prov(ProvNode(id=f"debate:{agent}:{turn_no}:{key}", node_type="debate", step_id=hyp,
-                              agent_id=agent, parent_ids=parents, status=status,
-                              summary=(plain or text)[:220],
-                              details={"agent": agent, "turn": turn_no, "plain": plain, "text": text,
-                                       "cited_ids": ok, "struck_citations": bad, **extra}))
-
-    for rnd in range(1, rounds + 1):
-        # ---- Builder
-        ctx.agent_status("builder", "reasoner", "Builder", "running", f"round {rnd}")
-        b_input = (f"Target: {target.name} (id {target.id}). Round {rnd} of {rounds}.\n"
-                   + ("Debate so far:\n" + json.dumps(transcript, indent=1) if transcript else
-                      "Start by exploring the graph, then propose your route."))
-        bt = (await ctx.client.run_tools([{"role": "user", "content": b_input}], b_tools,
-                                         instructions=common + "\n\n" + prompt("builder"), schema=BuilderTurn,
-                                         effort="medium", on_call=tool_logger("builder"))).parsed
-        builders.append(bt)
-        hyp_of = {o.id: o.hypothesis_id for t in skeptics for o in t.objections}
-        emit("builder", rnd, [(a.hypothesis_id, a.hypothesis_id, a.plain, a.claim,
-                               a.cited_ids + [i for op in a.procedure for i in op.cited_ids], "pass",
-                               {"name": a.name, "procedure": [op.model_dump() for op in a.procedure]})
-                              for a in bt.arguments]
-             + [(f"re-{r.objection_id}", hyp_of.get(r.objection_id), r.plain, r.response, r.cited_ids,
-                 "warn" if r.concede else "pass", {"objection_id": r.objection_id, "concede": r.concede})
-                for r in bt.rebuttals])
-        transcript.append({"builder": bt.model_dump()})
-        ctx.agent_status("builder", "reasoner", "Builder", "done", bt.summary[:160])
-        ctx.log("builder", bt.summary)
-
-        # ---- Skeptic
-        ctx.agent_status("skeptic", "reasoner", "Skeptic", "running", f"round {rnd}")
-        s_input = (f"Target: {target.name} (id {target.id}). Round {rnd} of {rounds}. "
-                   + ("This is the final round: keep only objections the evidence sustains.\n" if rnd == rounds else "\n")
-                   + "Debate so far:\n" + json.dumps(transcript, indent=1))
-        st = (await ctx.client.run_tools([{"role": "user", "content": s_input}], s_tools,
-                                         instructions=common + "\n\n" + prompt("skeptic"), schema=SkepticTurn,
-                                         effort="medium", model=skeptic_model, on_call=tool_logger("skeptic"))).parsed
-        skeptics.append(st)
-        emit("skeptic", rnd, [(o.id, o.hypothesis_id, o.plain, o.claim, o.cited_ids,
-                               "fail" if o.severity == "fatal" else "warn" if o.severity == "major" else "skip",
-                               {"objection_id": o.id, "severity": o.severity})
-                              for o in st.objections])
-        transcript.append({"skeptic": st.model_dump()})
-        ctx.agent_status("skeptic", "reasoner", "Skeptic", "done", st.summary[:160])
-        ctx.log("skeptic", st.summary)
-
-    final_route = builders[-1].route
+    """Builder and Skeptic argue over the graph for `rounds` rounds, then what
+    the Skeptic still objects to after the Builder's last answer stands."""
+    d = _Deps(
+        ctx=ctx, g=g, rounds=rounds, skeptic_model=skeptic_model,
+        common=prompt("debate_common"),
+        b_tools=build_tools(g, research, propose,
+                            {"overview", "get_node", "precedents", "find_clues",
+                             "request_research", "propose_step"}),
+        s_tools=build_tools(g, research, propose,
+                            {"overview", "get_node", "precedents", "find_clues", "request_research"}),
+        target=g.molecules[g.target_id],
+    )
+    final: DebateState = await _build_flow(d).ainvoke(
+        {"round": 1, "transcript": [], "builders": [], "skeptics": []},
+        {"recursion_limit": 4 * rounds + 6})
+    builders, skeptics = final["builders"], final["skeptics"]
     withdrawn = {w for s in skeptics for w in s.withdrawn}
-    sustained = [o for o in skeptics[-1].objections if o.id not in withdrawn]
-    return DebateResult(route=final_route, builder_turns=builders, skeptic_turns=skeptics,
-                        sustained=sustained, struck_citations=sorted(set(struck)))
+    return DebateResult(route=builders[-1].route, builder_turns=builders, skeptic_turns=skeptics,
+                        sustained=[o for o in skeptics[-1].objections if o.id not in withdrawn],
+                        struck_citations=sorted(set(d.struck)))
