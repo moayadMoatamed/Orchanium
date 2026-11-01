@@ -9,7 +9,7 @@ import type { Revision } from "../state/types";
 import { firstSentence, plural, readable } from "../textutil";
 import { TONE, VERDICT, confidenceWords, type VerdictLabel } from "../tokens";
 import { Card, MoreText, Section } from "./primitives";
-import { MoleculeChip, StepCard, stepTitle } from "./StepCard";
+import { MoleculeChip, RouteStepRow, stepTitle } from "./StepCard";
 
 type S = ReturnType<typeof useRun.getState>;
 
@@ -191,7 +191,6 @@ export function ResultView({ onRetry }: { onRetry: (target: string) => void }) {
   const count = stepCount(steps);
   const labFailed = steps.filter((x) => (x.detail?.lab_failures ?? 0) > 0 && !(x.detail?.lab_successes ?? 0));
   // lab notes need the run's saved graph, which runs with conditions records have
-  const finished = s.status === "done" && !!data?.steps[0]?.conditions;
   const recalled = data?.evidence?.recalled ?? 0;
   const labNotes = steps.reduce((n, x) => n + (x.detail?.lab_notes?.length ?? 0), 0);
   const sources = new Set(
@@ -287,7 +286,7 @@ export function ResultView({ onRetry }: { onRetry: (target: string) => void }) {
               icon={<span className="text-[12.5px] font-semibold tabular-nums">{step.index}</span>}
               title={`Step ${step.index}`}
             >
-              <StepCard s={s} step={step} buy={buy} target={target} finished={finished} />
+              <RouteStepRow s={s} step={step} target={target} />
             </TimelineRow>
           ))}
 
