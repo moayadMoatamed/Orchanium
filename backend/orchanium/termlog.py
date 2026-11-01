@@ -148,18 +148,30 @@ def agent_line(agent: str, text: str, level: str = "info") -> None:
         log.info("%s%s", head if i == 0 else " " * len(plain), body if i == 0 else line.strip())
 
 
-def wire(label: str, body: str, kind: str = "req") -> None:
-    """One request/response pair printed in full, once per run.
+def wire(url: str, model: str, tools: list[str], asking: str,
+         status: str, out: list[tuple[str, str]]) -> None:
+    """One request and its response, printed together, once per run.
 
-    Their guidance names "the API response" as one way to show a live call, so
-    the run shows exactly one unedited exchange: what went out, what came back.
-    In blind mode the body is already scrubbed before it reaches here.
+    Their guidance names "the API response" as a way to show a live call, so
+    one unedited exchange is shown: what went out and what came back. Printed
+    as a pair after the response lands — a POST stranded twenty lines above
+    its reply reads as broken output, not as evidence. In blind mode the body
+    is scrubbed long before it reaches here.
     """
     log = _log()
-    mark = _c("38;5;75", "POST") if kind == "req" else _c("38;5;71", "200 OK")
-    log.info("  %s %s", mark, dim(label))
-    for line in body.splitlines():
-        log.info("    %s", dim(line[:WIDTH]))
+    log.info("")
+    log.info("  %s", dim("\u250c\u2500 one call, in full " + "\u2500" * 42))
+    log.info("  %s %s %s", dim("\u2502"), _c("38;5;75", "POST"), dim(url))
+    for k, v in (("model", model), ("tools", ", ".join(tools) or "none")):
+        log.info("  %s   %s %s", dim("\u2502"), dim(k.ljust(7)), v)
+    for i, line in enumerate(_wrap(asking, "", "")):
+        log.info("  %s   %s %s", dim("\u2502"), dim("asking " if i == 0 else "       "),
+                 _c("38;5;180", line.strip()[:52]))
+    log.info("  %s %s %s", dim("\u2502"), _c("38;5;71", "200 OK"), dim(status))
+    for kind, text in out:
+        log.info("  %s   %s %s", dim("\u2502"), dim(kind.ljust(17)), dim(text[:48]))
+    log.info("  %s", dim("\u2514" + "\u2500" * 60))
+    log.info("")
 
 
 def search_line(agent: str, query: str, results: int) -> None:
