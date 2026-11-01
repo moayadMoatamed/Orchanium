@@ -147,27 +147,39 @@ The full write-up, including what these results do **not** prove, is in
 
 ### Held-out patent tests
 
-`scripts/eval_holdout.py` hides the patent, **every intermediate on its real route**, and then
-scores the proposed route against the real one automatically. This is the stricter standard,
-because it removes the loophole where a route is rebuilt from a patent about one of its parts.
+`scripts/eval_holdout.py` hides the patent, **every intermediate on its real route**, and the
+target's whole chemical series, then scores the proposed route against the real one
+automatically. A step counts as recovered only if the system makes the same product *and* either
+uses the same reaction type or starts from the same piece.
 
-| Target | Steps recovered | Verdict | Confidence | Cost |
+Six patents, run 1 Nov 2026 under the current, strictest filter:
+
+| Patent | Steps recovered | Verdict | Confidence | Cost |
 |---|---|---|---|---|
-| US20160024004A1 (sulfonamide benzamide) | **2 / 2** | Plausible | 0.67 | $0.30 |
-| US20160024004A1, with the similarity cap | **2 / 2** | Plausible | 0.51 | $0.28 |
-| US07732444B2 (pyrimidinyl benzylamine) | 1 / 2 | Uncertain | 0.40 | $0.63 |
+| US20160024004A1 | **2 / 2** | Plausible → Feasible | 0.67 | $0.52 |
+| US07732444B2 | **2 / 2** | Plausible | 0.62 | $0.55 |
+| US08367681B2 | **2 / 2** | Plausible | 0.55 | $0.63 |
+| US08017637B2 | 0 / 2 | Uncertain | 0.37 | $0.62 |
+| US09045389B2 | 0 / 2 | Uncertain | 0.42 | $0.49 |
+| US08163704B2 | 0 / 2 | Uncertain | 0.02 | $0.03 |
 
-> These three were measured **before** the blinding was tightened on 1 Nov 2026, so they ran under
-> a weaker filter than the drug runs above. They are reported as they were obtained, not restated
-> under the current rules.
+**6 of 12 ground-truth steps recovered; 3 of 6 routes recovered in full.**
 
-On US07732444B2 it found the reductive amination but not the Suzuki coupling, and said so: its own
-Skeptic flagged the weak step and the verdict came out *Uncertain*, not a confident wrong answer.
+The misses are worth more than the hits:
 
-**Route accuracy is not yet measured at scale.** One case under the current, strictest filter
-scored 0 / 2 — while proposing a chemically sound route that used both correct reaction types in
-the opposite order, which the scorer counts as a miss because it requires the same intermediate.
-There is no accuracy figure to quote yet, and none is claimed.
+- **US08163704B2 was never attempted.** Its target is a diaryl ketone, and the template registry
+  has no disconnection for one, so the decomposer produced zero candidate steps. The run ended at
+  0.02 confidence with **no route at all** rather than inventing one. That is a template gap, not
+  a reasoning failure — and the system said so instead of guessing.
+- **US08017637B2 proposed a chemically sound route** that used both correct reaction types on the
+  right pieces, in the opposite order. The scorer requires the same intermediate, so a valid
+  different ordering counts as zero. The strict number is reported as it stands, not loosened
+  after the fact.
+- **Every miss came back `Uncertain`.** Not one produced a confident wrong answer, which is the
+  property that matters when a chemist is deciding whether to spend a week at the bench.
+
+US07732444B2 scored 1 / 2 under the older, weaker blinding and **2 / 2** under the stricter one,
+so tightening the filter did not cost accuracy here.
 
 ### Live runs
 

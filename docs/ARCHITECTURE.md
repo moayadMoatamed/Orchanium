@@ -311,5 +311,9 @@ docs/                this file, and the blind-test evidence
 - **Reasoning is connectivity-level, not mechanistic.** It argues about which
   bonds can be made from what, with what precedent — not about transition
   states.
-- **Route accuracy is not yet measured at scale.** The held-out evaluation
-  exists and runs; it has not been run across enough patents to report a number.
+- **Route accuracy is measured on a small sample.** Six held-out patents, under
+  the strictest blinding: 6 of 12 ground-truth steps recovered, 3 of 6 routes in
+  full. One of the six could not be attempted at all, because the template
+  registry has no disconnection for a diaryl ketone. Every miss came back
+  `Uncertain` rather than as a confident wrong answer. See the README for the
+  per-patent table.
