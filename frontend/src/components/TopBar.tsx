@@ -62,17 +62,28 @@ export function TopBar({ onRun }: { onRun: (target: string, opts: { blind: boole
           </button>
         </form>
 
+        {/* A switch, not a labelled button: "Blind mode off" reads either as the
+            state or as what pressing it does. The knob's position says which. */}
         <button
           type="button"
-          aria-pressed={blind}
+          role="switch"
+          aria-checked={blind}
           disabled={busy}
           onClick={() => setBlind(!blind)}
-          title="Hides every source that mentions this molecule, so the route has to be reasoned out from other reactions rather than looked up"
-          className={`inline-flex shrink-0 items-center gap-1.5 rounded-chip border px-3 py-2 text-[13px] font-medium transition-colors ${
+          title={blind
+            ? "Blind mode is ON. Every source that mentions this molecule is hidden, so the route has to be reasoned out. Turn it off for the best answer."
+            : "Blind mode is OFF. Turn it on to hide every source that mentions this molecule and prove the route was reasoned out rather than looked up."}
+          className={`inline-flex shrink-0 items-center gap-2 rounded-chip border px-2.5 py-1.5 text-[13px]
+                      font-medium transition-colors disabled:opacity-40 ${
             blind ? "border-accent/40 bg-accent/10 text-accent" : "border-hairline text-muted hover:text-ink"}`}
         >
-          <EyeOff size={15} strokeWidth={1.9} aria-hidden />
-          Blind mode {blind ? "on" : "off"}
+          <span className={`relative h-[16px] w-[28px] shrink-0 rounded-full transition-colors ${
+            blind ? "bg-accent" : "bg-ink/25"}`}>
+            <span className={`absolute top-[2px] h-3 w-3 rounded-full bg-white shadow-sm transition-all ${
+              blind ? "left-[14px]" : "left-[2px]"}`} />
+          </span>
+          <EyeOff size={14} strokeWidth={1.9} aria-hidden />
+          Blind mode
         </button>
 
         <div className="flex shrink-0 items-center gap-2 text-[12.5px] text-muted">
