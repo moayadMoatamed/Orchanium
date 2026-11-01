@@ -148,9 +148,14 @@ def agent_line(agent: str, text: str, level: str = "info") -> None:
         log.info("%s%s", head if i == 0 else " " * len(plain), body if i == 0 else line.strip())
 
 
-def search_line(query: str, results: int) -> None:
-    """The query the model actually sent, and how much came back."""
-    q = query if len(query) <= 52 else query[:51] + "\u2026"
-    _log().info("    %s  %s %s", dim("web"), _c("38;5;180", f'"{q}"'), dim(f"\u00b7 {results}"))
+def search_line(agent: str, query: str, results: int) -> None:
+    """The query the model actually sent, and how much came back.
+
+    Named with its agent: several researchers run at once, so an unlabelled
+    query cannot be attributed to the call it belongs to.
+    """
+    q = query if len(query) <= 40 else query[:39] + "\u2026"
+    _log().info("    %s %s %s %s", dim("web"), dim(agent.ljust(12)),
+                _c("38;5;180", f'"{q}"'), dim(f"\u00b7 {results}"))
 
 

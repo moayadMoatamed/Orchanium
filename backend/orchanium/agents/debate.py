@@ -143,7 +143,13 @@ class _Deps:
 
     def logger(self, agent: str):
         def log(name: str, args: dict, result) -> None:
-            self.ctx.log(agent, f"{name}({json.dumps(args)[:120]})")
+            # drop the arguments the model left empty: a model sometimes writes
+            # the string "null", and showing it reads as a bug rather than a
+            # default. Attribute to the round, so it matches the call lines.
+            shown = {k: v for k, v in args.items()
+                     if v not in (None, "", "null", "None")}
+            who = current_agent.get() or agent
+            self.ctx.log(who, f"{name}({json.dumps(shown)[:110]})")
         return log
 
     def emit(self, agent: str, turn_no: int,
