@@ -26,6 +26,8 @@ from .agents import debate as debate_agent
 from .agents import decomposer, planner, reporter
 from .agents import verdict as verdict_agent
 from .events import RouteEvt
+from .termlog import PHASES, phase
+from .termlog import note as log_note
 
 
 class RunState(TypedDict, total=False):
@@ -45,6 +47,7 @@ def build(orch: Any):
     budget that every phase shares."""
 
     async def plan(state: RunState) -> RunState:
+        phase(*PHASES["plan"])
         ctx = orch.ctx
         async with ctx.agent("planner", "planner", "Planner") as h:
             await planner.run(ctx, orch.query)
@@ -58,6 +61,7 @@ def build(orch: Any):
         return {}
 
     async def decompose(state: RunState) -> RunState:
+        phase(*PHASES["decompose"])
         ctx, g = orch.ctx, orch.g
         async with ctx.agent("decomposer", "planner", "Decomposer (RDKit)") as h:
             await decomposer.run(ctx, g)
@@ -65,15 +69,21 @@ def build(orch: Any):
         return {"live": [x.id for x in g.hypotheses() if x.critic.verdict != "block"]}
 
     async def evidence(state: RunState) -> RunState:
+        phase(*PHASES["evidence"])
         # research may not spend what the debate and the report still need
         orch.budget.reserve = 0.5
         live = state.get("live") or []
+        log_note(f"{len(live)} candidate step(s) to find evidence for")
         await orch.gather_local_evidence(live)
-        await asyncio.gather(*(orch.research_web(hid) for hid in orch.web_research_targets()))
+        targets = orch.web_research_targets()
+        log_note(f"{len(targets)} of them get a web researcher, running at once")
+        await asyncio.gather(*(orch.research_web(hid) for hid in targets))
         return {}
 
     async def debate(state: RunState) -> RunState:
+        phase(*PHASES["debate"])
         ctx, note = orch.ctx, None
+        log_note(f"{orch.debate_rounds} round(s): Builder proposes, Skeptic attacks, repeat")
         orch.budget.reserve = 0.1
         result = None
         async with ctx.agent("debate", "reasoner", "Debate") as h:
@@ -88,18 +98,21 @@ def build(orch: Any):
         return {"debate": result, "review_note": note}
 
     async def decide(state: RunState) -> RunState:
+        phase(*PHASES["verdict"])
         ctx, g = orch.ctx, orch.g
         orch.budget.reserve = 0.0
         note = state.get("review_note") or (None if orch.debate_rounds > 0 else "debate disabled")
         async with ctx.agent("verdict", "critic", "Verdict (rule-based)") as h:
             v = verdict_agent.decide(ctx, g, state.get("debate"), note)
             h["message"] = f"{v.label} ({v.confidence:.0%})"
+            log_note(f"{v.label} at {v.confidence:.0%} — computed from the evidence, not asked of a model")
         orch.bus.publish("route", RouteEvt(route_id="final", rank=1, steps=v.route, score=v.confidence,
                                            label=v.label,
                                            metrics={**g.metrics([g.grade(x) for x in v.route]), "gaps": v.gaps}))
         return {"verdict": v}
 
     async def report(state: RunState) -> RunState:
+        phase(*PHASES["report"])
         ctx, g, v = orch.ctx, orch.g, state.get("verdict")
         text = ""
         async with ctx.agent("reporter", "reporter", "Reporter") as h:
