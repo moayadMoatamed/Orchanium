@@ -10,8 +10,9 @@ The debate informs the verdict but can never override a computed grade."""
 from __future__ import annotations
 
 import json
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable, Literal, TypedDict
+from typing import Any, Literal, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
@@ -20,7 +21,6 @@ from ..context import RunContext, prompt
 from ..events import ProvNode
 from ..graph import KnowledgeGraph
 from .graph_tools import build_tools, node_kind
-
 
 # ---------------------------------------------------------------- turn schemas (LLM)
 

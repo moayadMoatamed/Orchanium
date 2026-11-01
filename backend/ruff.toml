@@ -1,0 +1,9 @@
+line-length = 120
+target-version = "py312"
+
+[lint]
+select = ["F", "E", "I", "UP", "B"]
+# E501: long lines are allowed where a comment explains a rule in place.
+# B905: these zips pair sequences built together, so a length check would only
+#       turn an impossible case into a crash.
+ignore = ["E501", "B008", "B905"]

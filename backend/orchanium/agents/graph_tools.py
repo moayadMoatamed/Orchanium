@@ -2,7 +2,8 @@
 Every id in a tool result is a real graph id that can be cited."""
 from __future__ import annotations
 
-from typing import Awaitable, Callable, Literal
+from collections.abc import Awaitable, Callable
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -35,7 +36,7 @@ def _clue_brief(g: KnowledgeGraph, cid: str) -> dict:
             "snippet": c.source.snippet, "citation_check": g.citation_status.get(cid, "pending")}
 
 
-def _hyp_brief(g: KnowledgeGraph, hid: str) -> dict:
+def step_brief(g: KnowledgeGraph, hid: str) -> dict:
     h = g.reactions[hid]
     step = g.grade(hid)
     return {"id": hid, "product": _mol(g, h.product), "reactants": [_mol(g, x) for x in h.reactants],
@@ -95,7 +96,7 @@ def build_tools(g: KnowledgeGraph,
             "target": {"id": t.id, "name": t.name, "smiles": t.smiles, "known_compound": t.known},
             "counts": {"molecules": len(g.molecules), "hypotheses": len(g.hypotheses()),
                        "observed_reactions": len(g.observed()), "clues": len(g.clues)},
-            "hypotheses": [_hyp_brief(g, h.id) for h in g.hypotheses()],
+            "hypotheses": [step_brief(g, h.id) for h in g.hypotheses()],
             "suggested_routes": [{"route_id": r.route_id, "cost": r.cost,
                                   "steps": [s.hypothesis_id for s in r.steps],
                                   "grades": [s.grade for s in r.steps],
@@ -113,7 +114,7 @@ def build_tools(g: KnowledgeGraph,
                     "similar_molecules": [{**_mol(g, x), "similarity": round(s, 2)} for x, s in g.similar_molecules(m.id)]}
         if kind == "hypothesis":
             h = g.reactions[p.id]
-            return {"kind": kind, **_hyp_brief(g, p.id),
+            return {"kind": kind, **step_brief(g, p.id),
                     "critic_checks": [{"check": c.name, "status": c.status, "reason": c.reason}
                                       for c in (h.critic.checks if h.critic else [])],
                     "top_precedents": [{"observed_id": x.observed_id, "score": x.score.score, "grade": x.score.grade,
@@ -137,7 +138,7 @@ def build_tools(g: KnowledgeGraph,
             out.append({"observed_id": o.id, "outcome": x.outcome, **x.score.model_dump(),
                         "reaction": f"{' + '.join(g.molecules[r].name for r in o.reactants)} → {g.molecules[o.product].name}",
                         "clues": [_clue_brief(g, c) for c in o.clue_ids]})
-        return {"hypothesis": _hyp_brief(g, p.hypothesis_id), "precedents": out}
+        return {"hypothesis": step_brief(g, p.hypothesis_id), "precedents": out}
 
     async def find_clues(p: ClueQuery) -> dict:
         words = [w for w in (p.text or "").lower().split() if len(w) > 2]

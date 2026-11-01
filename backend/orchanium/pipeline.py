@@ -104,6 +104,7 @@ def build(orch: Any):
         text = ""
         async with ctx.agent("reporter", "reporter", "Reporter") as h:
             text = await reporter.run(ctx, g, v, state.get("debate"))
+            h["message"] = f"{len(v.route) if v else 0} step(s) written up"
         # the snapshot is what lets a lab note revise this run's answer later
         lab.save_snapshot(orch.run_id, lab.Snapshot(graph=g, debate=state.get("debate"), verdict=v,
                                                     report=text, target=ctx.target))
