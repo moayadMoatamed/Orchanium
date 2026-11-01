@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     sam_model: str = "sam-3.1"
 
     db_path: Path = DATA / "orchanium.sqlite"
+    # ORCHANIUM_NO_CACHE=1 skips reading the response cache, so every model
+    # call in the run is a real request. Used when recording a live demo.
+    no_cache: bool = False
     fetch_contact_url: str = ""          # put in the citation-checker User-Agent (Wikipedia requires one)
 
     # per-run guardrails

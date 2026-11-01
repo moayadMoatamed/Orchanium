@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .config import PROMPTS
-from .events import AgentStatus, EventBus, ProvNode
+from .events import AgentStatus, EventBus, ProvNode, current_agent
 from .meta.client import MetaClient
 
 
@@ -73,6 +73,8 @@ class RunContext:
         swallowed so the run continues (graceful degradation)."""
         self.agent_status(agent_id, agent_type, label, "running")
         holder: dict[str, Any] = {"message": "", "failed": False}
+        # so every Meta call made inside this block is attributed to this agent
+        token = current_agent.set(agent_id)
         try:
             yield holder
         except Exception as e:  # noqa: BLE001
@@ -80,4 +82,6 @@ class RunContext:
             self.log(agent_id, f"{type(e).__name__}: {e}", "error")
             self.agent_status(agent_id, agent_type, label, "failed", str(e)[:200])
             return
+        finally:
+            current_agent.reset(token)
         self.agent_status(agent_id, agent_type, label, "done", holder.get("message", ""))

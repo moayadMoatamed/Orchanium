@@ -161,6 +161,9 @@ class Orchestrator:
         self.bus.publish("run.status", {"status": "running", "target": self.query, "blind": self.blind,
                                         "started_at": time.time()})
         client = MetaClient(self.budget)
+        # publish every Meta API call as it completes, so the UI can show the
+        # model working live. Telemetry only: it changes no result.
+        client.on_meta_call = lambda call: self.bus.publish("meta.call", call)
         self.ctx = ctx = RunContext(run_id=self.run_id, bus=self.bus, client=client, blind=self.blind,
                                     hidden=self.hidden, hidden_molecules=self.hidden_molecules,
                                     similarity_cap=self.similarity_cap)

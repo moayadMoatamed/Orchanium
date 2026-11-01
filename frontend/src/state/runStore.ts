@@ -8,6 +8,22 @@ import type {
 
 export type Tab = "route" | "method" | "reasoning" | "lab";
 
+/** One request to the Meta Model API, as the backend reports it. Carries no
+ *  prompt text — model, who asked, how long, how much. */
+export interface MetaCall {
+  agent_id: string | null;
+  model: string;
+  response_id: string | null;
+  latency_s: number;
+  tokens_in: number;
+  tokens_out: number;
+  searches: number;
+  usd: number;
+  cached: boolean;
+  web_search: boolean;
+  ts: number;
+}
+
 interface RunState {
   runId: string | null;
   status: "idle" | "running" | "done" | "failed";
@@ -25,6 +41,8 @@ interface RunState {
   agents: Record<string, AgentState>;
   agentOrder: string[];
   cost: Cost;
+  /** every Meta API call this run made, in order, newest last */
+  metaCalls: MetaCall[];
   verdict: RouteVerdict | null;
   report: { markdown: string; data: ReportData } | null;
   summary: Record<string, any> | null;
@@ -63,6 +81,7 @@ export const useRun = create<RunState>((set, get) => ({
   agents: {},
   agentOrder: [],
   cost: EMPTY_COST,
+  metaCalls: [],
   verdict: null,
   report: null,
   summary: null,
@@ -85,7 +104,7 @@ export const useRun = create<RunState>((set, get) => ({
       runId, target, status: "running", targetInfo: null, blind: false,
       startedAt: null, finishedAt: null, lastEventTs: null,
       molecules: {}, reactions: {}, prov: {}, provOrder: [], agents: {}, agentOrder: [],
-      cost: EMPTY_COST, verdict: null, report: null, summary: null, revisions: [],
+      cost: EMPTY_COST, metaCalls: [], verdict: null, report: null, summary: null, revisions: [],
       tab: "route", selectedStep: null, selectedNode: null, selectedMolecule: null,
     }),
 
@@ -157,6 +176,10 @@ export const useRun = create<RunState>((set, get) => ({
       case "graph.reaction":
         set({ reactions: { ...s.reactions, [data.id]: data } });
         break;
+      case "meta.call":
+        set({ metaCalls: [...s.metaCalls, { ...data, ts: ts ?? Date.now() / 1000 }].slice(-400) });
+        break;
+
       case "cost":
         set({ cost: { ...s.cost, ...data } });
         break;
@@ -185,7 +208,7 @@ export const useRun = create<RunState>((set, get) => ({
       es = new EventSource(`/api/runs/${runId}/events?replay_speed=${replaySpeed}&since=${seen}`);
       const kinds = [
         "run.status", "agent.status", "agent.log", "prov.node",
-        "graph.molecule", "graph.reaction", "route", "cost", "report", "revision",
+        "graph.molecule", "graph.reaction", "route", "cost", "report", "revision", "meta.call",
       ];
       for (const kind of kinds) {
         es.addEventListener(kind, (e) => {

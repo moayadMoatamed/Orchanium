@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -19,6 +20,12 @@ from .events import Event
 from .lab import LabNote, NoteRejected, add_note
 from .orchestrator import Orchestrator, live_bus
 from .store import get_store
+
+# One readable line per Meta API request, on stdout beside uvicorn's own log.
+# No prompt text and no chemistry: model, agent, timing, tokens, cost.
+logging.getLogger("orchanium.meta").setLevel(logging.INFO)
+if not logging.getLogger().handlers:
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
 
 app = FastAPI(title="Orchanium", version="2.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])

@@ -4,9 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import time
+from contextvars import ContextVar
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
+
+# Set by RunContext.agent() so a Meta call can be attributed to the agent that
+# made it without threading an id through every call site.
+current_agent: ContextVar[str | None] = ContextVar("current_agent", default=None)
 
 NodeType = Literal[
     "query", "source", "extraction", "vision", "resolution", "hypothesis", "precedent", "debate",
@@ -19,7 +24,7 @@ AgentType = Literal[
     "citation_checker", "critic", "reasoner", "reporter",
 ]
 EventKind = Literal[
-    "run.status", "agent.status", "agent.log", "prov.node",
+    "run.status", "agent.status", "agent.log", "prov.node", "meta.call",
     "graph.molecule", "graph.reaction", "route", "cost", "report", "revision",
 ]
 
@@ -49,6 +54,26 @@ class AgentLog(BaseModel):
     agent_id: str
     text: str
     level: Literal["info", "warn", "error"] = "info"
+
+
+class MetaCall(BaseModel):
+    """One request to the Meta Model API, emitted as it completes.
+
+    Cached calls are emitted too, flagged, so the event log is a complete and
+    honest record of model usage rather than only the parts that cost money.
+    Carries no prompt text: in blind mode the target's names are scrubbed from
+    the request body, and nothing here may re-expose them.
+    """
+    agent_id: str | None = None
+    model: str
+    response_id: str | None = None
+    latency_s: float = 0.0
+    tokens_in: int = 0
+    tokens_out: int = 0
+    searches: int = 0                   # web searches performed inside this call
+    usd: float = 0.0
+    cached: bool = False
+    web_search: bool = False
 
 
 class MoleculeEvt(BaseModel):
