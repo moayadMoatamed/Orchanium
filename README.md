@@ -138,8 +138,8 @@ known by is scrubbed from every model request, so an agent cannot recall a route
 
 | Target | Dropped as leaks | Result | Cost |
 |---|---|---|---|
-| **Nirmatrelvir** (Paxlovid) | 14 clues, 41 names | Found the right disconnections; justified the key step from **hepatitis C** chemistry after the COVID literature was removed. Uncertain, 0.49 | $0.57 |
-| **Sotorasib** (Lumakras) | 41 clues, including the makers' own paper on the key coupling | Built a **complete 7-step route** from 8 buyable chemicals, matching the real manufacturing route. Its own Skeptic then found the one place its route differs from the real one. Uncertain, 0.55 | $0.79 |
+| **Nirmatrelvir** (Paxlovid) | 45 clues, 41 names | Found the right disconnections — two amide couplings, every chemistry check passing — with no published precedent left for the final step. Uncertain, 0.30 | $0.57 |
+| **Sotorasib** (Lumakras) | 41 clues, including the makers' own paper on the key coupling | Built a **complete 7-step route** from 8 buyable chemicals, matching the real manufacturing route. Its own Skeptic then found the one place its route differs from the real one. Uncertain, 0.44 | $0.79 |
 
 Each of those runs exposed a hole in our own blinding, which is what the two questions above are.
 The full write-up, including what these results do **not** prove, is in
@@ -156,11 +156,11 @@ Six patents, run 1 Nov 2026 under the current, strictest filter:
 
 | Patent | Steps recovered | Verdict | Confidence | Cost |
 |---|---|---|---|---|
-| US20160024004A1 | **2 / 2** | Plausible → Feasible | 0.67 | $0.52 |
-| US07732444B2 | **2 / 2** | Plausible | 0.62 | $0.55 |
-| US08367681B2 | **2 / 2** | Plausible | 0.55 | $0.63 |
-| US08017637B2 | 0 / 2 | Uncertain | 0.37 | $0.62 |
-| US09045389B2 | 0 / 2 | Uncertain | 0.42 | $0.49 |
+| US20160024004A1 | **2 / 2** | Plausible → Feasible | 0.72 | $0.52 |
+| US07732444B2 | **2 / 2** | Plausible | 0.67 | $0.55 |
+| US08367681B2 | **2 / 2** | Plausible | 0.60 | $0.63 |
+| US08017637B2 | 0 / 2 | Uncertain | 0.31 | $0.62 |
+| US09045389B2 | 0 / 2 | Uncertain | 0.43 | $0.49 |
 | US08163704B2 | 0 / 2 | Uncertain | 0.02 | $0.03 |
 
 **6 of 12 ground-truth steps recovered; 3 of 6 routes recovered in full.**

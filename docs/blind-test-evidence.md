@@ -39,12 +39,12 @@ Then we ask it to work out how to make the molecule anyway.
 ## 2. Test one — the Paxlovid ingredient
 
 **Molecule:** nirmatrelvir, the active ingredient in Pfizer's COVID pill, Paxlovid.
-**Run ID:** `20261101-011307-87cdb0` · cost $0.57 · about 8 minutes.
+**Run ID:** `20261101-070727-947ba8` · cost $0.57 · about 8 minutes.
 
 ### What was taken away
 
 The system found and hid **41 different names** for this molecule. It then refused
-**14 pieces of evidence**, including papers titled:
+**45 pieces of evidence**, including papers titled:
 
 - "Development and patent synthesis of nirmatrelvir"
 - "Nirmatrelvir: From Discovery to Modern and Alternative Synthesis"
@@ -58,19 +58,22 @@ refusals are visible on screen in the app.
 A two-step route, joining the molecule's four building blocks in the right places. The
 places it chose to cut the molecule apart are the same places Pfizer cuts it.
 
-**The part worth filming:** the evidence it used to justify the key step came from
-research on **hepatitis C drugs** — narlaprevir and boceprevir. Completely different
-disease, completely different research field, but chemically similar enough to be
-relevant. With the COVID research removed, the system reached across to another field
-and reasoned by analogy.
+**A correction, because an earlier draft of this file got it wrong.** That first run
+leaned on a paper about hepatitis C drugs, and it was written up here as the system
+reaching across to a different disease and reasoning by analogy. Tightening the filter
+later showed that was too generous: the compound in question was nirmatrelvir with one
+end-group swapped — a near-twin of the target, not distant chemistry. Under the current
+filter it is correctly treated as giving the answer away, and it is dropped.
 
-That is the core idea of the whole product: collect clues from unrelated research,
-connect them, and reason over them.
+**What stands without it.** The system still cuts the molecule in the same two places
+Pfizer does, both steps are amide couplings, and **all six chemistry checks pass on
+both**. What it no longer has is a published near-match for the final step — so it says
+so, rather than borrowing confidence from a near-copy of the answer.
 
 ### Its answer
 
-**Uncertain, 49% confidence.** It did not pretend to be sure. It listed what it was
-unsure about.
+**Uncertain, 30% confidence.** It did not pretend to be sure, and it named what it was
+unsure about: the final step has nothing published close to it.
 
 ### What this does *not* prove — say this out loud
 
@@ -130,7 +133,7 @@ proposed a route with a genuine flaw, and then found that flaw itself.
 
 ### Its answer
 
-**Uncertain, 55% confidence** — because two steps rest on weak evidence and one
+**Uncertain, 44% confidence** — because two steps rest on weak evidence and one
 objection still stands. Again, no bluffing.
 
 ### The honest caveat
@@ -176,9 +179,9 @@ disprove our own claim, then used it on ourselves and published what it found.
 
 ---
 
-## 6. One caveat about these two runs
+## 6. Both runs now meet the same standard
 
-The Paxlovid run was made *before* the last of the three fixes above. The sotorasib run
-includes all of them. If the Paxlovid result is going to be shown as evidence, it is
-worth running it once more under the final, strictest filter so both tests meet the same
-standard.
+Both figures above come from runs under the final, strictest filter, scored by the
+current confidence rule. Earlier drafts of this file quoted 49% and 55%, from runs made
+before the blinding was tightened and before the score counted the chemistry checks and
+the reaction type. Those older numbers should not be used.

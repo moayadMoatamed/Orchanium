@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 from ..context import RunContext
 from ..events import ProvNode
 from ..graph import KnowledgeGraph
+from . import confidence
 from .debate import DebateResult, Objection
 from .graph_tools import node_kind
 
@@ -28,6 +29,7 @@ class StepVerdict(BaseModel):
     reaction: str
     grade: str
     precedent_score: float | None
+    evidence: float | None = None          # what the evidence says about this step
     failure_precedents: int
     lab_successes: int = 0
     lab_failures: int = 0
@@ -129,10 +131,11 @@ def decide(ctx: RunContext, g: KnowledgeGraph, debate: DebateResult | None,
         reasons.append("capped at Plausible: the route was not reviewed by the Skeptic"
                        + (f" ({review_note})" if review_note else ""))
 
-    scores = [s.precedent_score or 0.1 for s in steps] or [0.0]
-    conf = (sum(scores) / len(scores) - 0.08 * major - 0.2 * len(fatal_evidenced) - 0.1 * len(gaps)
-            - 0.25 * len(lab_failed))
-    conf = round(max(0.02, min(0.97, conf)), 2)
+    evidence = [confidence.step_evidence(g, s.hypothesis_id, s.precedent_score) for s in steps]
+    for s, e in zip(steps, evidence):
+        s.evidence = e
+    conf = confidence.route_confidence(evidence, major=major, fatal_evidenced=len(fatal_evidenced),
+                                       gaps=len(gaps), lab_failed=len(lab_failed))
     v = Verdict(label=label, confidence=conf, reasons=reasons, route=route, route_source=source,
                 steps=steps, gaps=gaps)
 
