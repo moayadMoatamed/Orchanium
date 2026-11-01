@@ -43,6 +43,10 @@ log.setLevel(logging.INFO)
 log.propagate = False
 
 
+def _k(n: int) -> str:
+    return f"{n / 1000:.1f}k" if n >= 1000 else str(n)
+
+
 def price_of(model: str, usage: dict, searches: int = 0) -> float:
     """USD for one call. Pure: used both for budget accounting and telemetry,
     so the number shown on screen is the number that was charged."""
@@ -263,15 +267,14 @@ class MetaClient:
             if call.cached:
                 log.info("%s %s %s %s", dim("meta ←"), blue(call.model), who, dim("cached"))
             else:
-                searches = (f"{call.searches} search" + ("" if call.searches == 1 else "es")
-                            if call.searches else "")
+                # kept under ~70 columns: the terminal shares the screen with
+                # the app during a demo, and a wrapped line loses its columns
                 log.info(
-                    "%s %s %s %s  %s  %s  %s",
+                    "%s %s %s %s %s %s",
                     dim("meta ←"), blue(call.model), who,
-                    f"{call.latency_s:6.2f}s",
-                    f"{call.tokens_in:>9,} in / {call.tokens_out:>6,} out",
-                    searches.ljust(11),
-                    green(f"${call.usd:.4f}"),
+                    f"{call.latency_s:5.1f}s",
+                    f"{_k(call.tokens_in):>6}→{_k(call.tokens_out):<6}",
+                    (f"{call.searches} web " if call.searches else "      ") + green(f"${call.usd:.3f}"),
                 )
             if self.on_meta_call:
                 self.on_meta_call(call)
@@ -284,7 +287,7 @@ class MetaClient:
         web_search = any(t.get("type") == "web_search" for t in (body.get("tools") or []))
         agent = current_agent.get()
         log.info("%s %s %s %s", dim("meta →"), blue(model), (agent or "-").ljust(13),
-                 dim("web_search=on" if web_search else "web_search=off"))
+                 dim("search on" if web_search else "search off"))
         last, t0 = None, time.time()
         for i in range(attempts):
             try:

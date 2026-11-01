@@ -60,7 +60,7 @@ def amber(t: str) -> str:
     return _c("38;5;179", t)
 
 
-def rule(width: int = 78) -> str:
+def rule(width: int = 62) -> str:
     return dim("─" * width)
 
 
@@ -72,11 +72,37 @@ def _log() -> logging.Logger:
     return log
 
 
-def phase(title: str, blurb: str) -> None:
+# What each phase is for, in words a non-chemist can follow. Kept here rather
+# than inline so the whole narration can be read — and corrected — in one place.
+PHASES: dict[str, tuple[str, str]] = {
+    "plan": ("Plan", "what molecule is this?"),
+    "decompose": ("Decompose", "what steps could make it?"),
+    "evidence": ("Evidence", "has anyone published a reaction like each step?"),
+    "debate": ("Debate", "two agents argue over the evidence"),
+    "verdict": ("Verdict", "computed by a rule, not asked of a model"),
+    "report": ("Report", "write it up with conditions and sources"),
+}
+
+# The second line of a heading: the detail that will not fit beside the title.
+# Kept short so nothing wraps in a terminal sharing the screen with the app.
+PHASE_NOTES: dict[str, str] = {
+    "plan": "resolved against PubChem — never drawn by a model",
+    "decompose": "RDKit applies reaction templates in reverse",
+    "evidence": "researchers search the literature in parallel",
+    "debate": "one proposes a route, the other attacks it",
+    "verdict": "the argument informs it, it cannot override it",
+    "report": "",
+}
+
+
+def phase(key: str) -> None:
     """Announce a phase before its work starts."""
+    title, blurb = PHASES[key]
     log = _log()
     log.info("")
     log.info("%s  %s", bold(blue(f"▸ {title.upper()}")), dim(blurb))
+    if PHASE_NOTES.get(key):
+        log.info("%s", dim(f"  {PHASE_NOTES[key]}"))
     log.info(rule())
 
 
@@ -84,13 +110,3 @@ def note(text: str) -> None:
     _log().info("  %s", dim(text))
 
 
-# What each phase is for, in words a non-chemist can follow. Kept here rather
-# than inline so the whole narration can be read — and corrected — in one place.
-PHASES: dict[str, tuple[str, str]] = {
-    "plan": ("Plan", "what molecule is this? — resolved against PubChem, never drawn by a model"),
-    "decompose": ("Decompose", "what steps could make it? — RDKit applies reaction templates in reverse"),
-    "evidence": ("Evidence", "has anyone published a reaction like each step? — researchers search in parallel"),
-    "debate": ("Debate", "two agents argue over the evidence — one proposes a route, one attacks it"),
-    "verdict": ("Verdict", "computed by a fixed rule over the evidence — the argument informs it, never overrides it"),
-    "report": ("Report", "writing the route up with its conditions and sources"),
-}
