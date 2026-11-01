@@ -12,6 +12,7 @@ import asyncio
 import copy
 import json
 import logging
+import re
 import sys
 import time
 from collections.abc import Awaitable, Callable
@@ -295,14 +296,6 @@ class MetaClient:
         show_full = not _shown_full and web_search
         if show_full:
             _shown_full = True
-            inp = body.get("input")
-            if isinstance(inp, list):
-                inp = " ".join(str((m or {}).get("content", "")) for m in inp if isinstance(m, dict))
-            wire(f"{settings.meta_base_url}/responses", json.dumps({
-                "model": model,
-                "tools": [t.get("type") for t in (body.get("tools") or [])],
-                "input": (str(inp or "")[:150] + "\u2026"),
-            }, indent=1)[:600], "req")
         last, t0 = None, time.time()
         for i in range(attempts):
             try:
@@ -317,14 +310,26 @@ class MetaClient:
                              if o.get("type") == "web_search_call"]
                     searches = len(calls)
                     if show_full:
-                        out = [{"type": o.get("type"),
-                                **({"query": (o.get("action") or {}).get("query")}
-                                   if o.get("type") == "web_search_call" else
-                                   {"text": _parse_output(data)[0][:120] + "\u2026"})}
-                               for o in (data.get("output") or [])[:3]]
-                        wire(f"{round(time.time() - t0, 1)}s", json.dumps(
-                            {"id": data.get("id"), "output": out,
-                             "usage": usage}, indent=1)[:700], "res")
+                        inp = body.get("input")
+                        if isinstance(inp, list):
+                            inp = " ".join(str((m or {}).get("content", ""))
+                                           for m in inp if isinstance(m, dict))
+                        inp = re.sub(r"\s+", " ", str(inp or "")).strip()
+                        # the task sits at the end, after the role preamble
+                        asking = ("\u2026" + inp[-170:]) if len(inp) > 170 else inp
+                        out: list[tuple[str, str]] = []
+                        for o in (data.get("output") or [])[:4]:
+                            if o.get("type") == "web_search_call":
+                                out.append(("web_search_call",
+                                            f'"{(o.get("action") or {}).get("query", "")}"'))
+                            elif o.get("type") == "message":
+                                out.append(("message", _parse_output(data)[0].strip()))
+                        wire(f"{settings.meta_base_url}/responses", model,
+                             [t.get("type") for t in (body.get("tools") or [])], asking,
+                             f"{round(time.time() - t0, 1)}s \u00b7 "
+                             f"{usage.get('input_tokens', 0):,} in / "
+                             f"{usage.get('output_tokens', 0):,} out",
+                             out)
                     for o in calls:            # the query the model actually sent
                         q = (o.get("action") or {}).get("query")
                         if q:
