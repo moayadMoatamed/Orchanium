@@ -24,7 +24,7 @@ from pydantic import BaseModel, Field
 from ..config import settings
 from ..events import MetaCall, current_agent
 from ..store import get_store, hash_key
-from ..termlog import blue, dim, green
+from ..termlog import blue, dim, green, search_line
 
 CACHE_NS = "llm.v1"
 
@@ -298,8 +298,13 @@ class MetaClient:
                 if r.status_code == 200:
                     data = r.json()
                     usage = data.get("usage") or {}
-                    searches = sum(1 for o in (data.get("output") or [])
-                                   if o.get("type") == "web_search_call")
+                    calls = [o for o in (data.get("output") or [])
+                             if o.get("type") == "web_search_call"]
+                    searches = len(calls)
+                    for o in calls:            # the query the model actually sent
+                        q = (o.get("action") or {}).get("query")
+                        if q:
+                            search_line(q, len(o.get("results") or []))
                     self._emit(MetaCall(
                         agent_id=agent, model=model, response_id=data.get("id"),
                         latency_s=round(time.time() - t0, 2),
