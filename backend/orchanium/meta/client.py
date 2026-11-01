@@ -304,7 +304,7 @@ class MetaClient:
                     for o in calls:            # the query the model actually sent
                         q = (o.get("action") or {}).get("query")
                         if q:
-                            search_line(q, len(o.get("results") or []))
+                            search_line(agent or "-", q, len(o.get("results") or []))
                     self._emit(MetaCall(
                         agent_id=agent, model=model, response_id=data.get("id"),
                         latency_s=round(time.time() - t0, 2),
