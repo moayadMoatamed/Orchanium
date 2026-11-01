@@ -97,6 +97,13 @@ def decide(ctx: RunContext, g: KnowledgeGraph, debate: DebateResult | None,
     fatal = [o for o in sustained if o.severity == "fatal"]
     fatal_evidenced = [o for o in fatal if _backed_by_failure(g, o)]
     major = len([o for o in sustained if o.severity == "major"]) + len(fatal) - len(fatal_evidenced)
+    # an objection counts against the step it names; only ones naming no step
+    # in the route are charged to the route as a whole
+    unevidenced_fatal = {o.id for o in fatal} - {o.id for o in fatal_evidenced}
+    step_majors = {s_.hypothesis_id: sum(1 for o in s_.objections
+                                         if o.severity == "major" or o.id in unevidenced_fatal)
+                   for s_ in steps}
+    orphan = max(0, major - sum(step_majors.values()))
     weak = grades.count("weak")
 
     if not steps:
@@ -131,10 +138,12 @@ def decide(ctx: RunContext, g: KnowledgeGraph, debate: DebateResult | None,
         reasons.append("capped at Plausible: the route was not reviewed by the Skeptic"
                        + (f" ({review_note})" if review_note else ""))
 
-    evidence = [confidence.step_evidence(g, s.hypothesis_id, s.precedent_score) for s in steps]
+    evidence = [confidence.step_evidence(g, s.hypothesis_id, s.precedent_score,
+                                         majors=step_majors.get(s.hypothesis_id, 0)) for s in steps]
     for s, e in zip(steps, evidence):
         s.evidence = e
-    conf = confidence.route_confidence(evidence, major=major, fatal_evidenced=len(fatal_evidenced),
+    conf = confidence.route_confidence(evidence, orphan_objections=orphan,
+                                       fatal_evidenced=len(fatal_evidenced),
                                        gaps=len(gaps), lab_failed=len(lab_failed))
     v = Verdict(label=label, confidence=conf, reasons=reasons, route=route, route_source=source,
                 steps=steps, gaps=gaps)

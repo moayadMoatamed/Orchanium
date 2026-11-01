@@ -52,24 +52,41 @@ def test_a_critic_warning_costs_the_step(monkeypatch):
 
 def test_a_route_is_judged_by_its_weakest_link_too():
     """Four good steps must not hide one nobody can make."""
-    even = C.route_confidence([0.6, 0.6, 0.6, 0.6], major=0, fatal_evidenced=0, gaps=0, lab_failed=0)
-    lopsided = C.route_confidence([0.8, 0.8, 0.8, 0.1], major=0, fatal_evidenced=0, gaps=0, lab_failed=0)
+    even = C.route_confidence([0.6, 0.6, 0.6, 0.6], orphan_objections=0, fatal_evidenced=0, gaps=0, lab_failed=0)
+    lopsided = C.route_confidence([0.8, 0.8, 0.8, 0.1], orphan_objections=0, fatal_evidenced=0, gaps=0, lab_failed=0)
     assert sum([0.8, 0.8, 0.8, 0.1]) / 4 > sum([0.6] * 4) / 4   # the average says lopsided is better
     assert lopsided < even                                       # the rule does not
 
 
 def test_penalties_still_apply_and_the_floor_holds():
-    base = C.route_confidence([0.7, 0.7], major=0, fatal_evidenced=0, gaps=0, lab_failed=0)
-    objected = C.route_confidence([0.7, 0.7], major=2, fatal_evidenced=0, gaps=0, lab_failed=0)
+    base = C.route_confidence([0.7, 0.7], orphan_objections=0, fatal_evidenced=0, gaps=0, lab_failed=0)
+    objected = C.route_confidence([0.7, 0.7], orphan_objections=2, fatal_evidenced=0, gaps=0, lab_failed=0)
     assert objected == round(base - 0.16, 2)
-    assert C.route_confidence([0.3], major=0, fatal_evidenced=0, gaps=0, lab_failed=2) == 0.02
-    assert C.route_confidence([], major=0, fatal_evidenced=0, gaps=0, lab_failed=0) == 0.02
+    assert C.route_confidence([0.3], orphan_objections=0, fatal_evidenced=0, gaps=0, lab_failed=2) == 0.02
+    assert C.route_confidence([], orphan_objections=0, fatal_evidenced=0, gaps=0, lab_failed=0) == 0.02
 
 
 def test_a_route_you_cannot_start_is_never_confident():
     """A gap means a precursor can be neither bought nor made here, so however
     well evidenced the steps are, nobody can run the route as written."""
-    perfect = C.route_confidence([0.98], major=0, fatal_evidenced=0, gaps=0, lab_failed=0)
-    stranded = C.route_confidence([0.98], major=0, fatal_evidenced=0, gaps=1, lab_failed=0)
+    perfect = C.route_confidence([0.98], orphan_objections=0, fatal_evidenced=0, gaps=0, lab_failed=0)
+    stranded = C.route_confidence([0.98], orphan_objections=0, fatal_evidenced=0, gaps=1, lab_failed=0)
     assert perfect > 0.9
     assert stranded <= C.INCOMPLETE_CAP
+
+
+def test_objections_hit_their_own_step_not_the_whole_route(monkeypatch):
+    """Counting every objection against the route punished long routes twice:
+    more steps attract more objections, so a seven-step route could lose more
+    than all its evidence was worth and land on the floor."""
+    _priors(monkeypatch, {})
+    g = _Graph([])
+    clean = C.step_evidence(g, "h", 0.6)
+    objected = C.step_evidence(g, "h", 0.6, majors=1)
+    assert objected < clean
+    assert objected > 0.3                       # one objection is not a death sentence
+
+    # a long route whose objections are spread thin must not fall to the floor
+    spread = [C.step_evidence(g, "h", x, majors=1 if i % 2 else 0)
+              for i, x in enumerate([0.1, 0.47, 0.35, 0.1, 0.35, 0.36, 0.98])]
+    assert C.route_confidence(spread) > 0.1
