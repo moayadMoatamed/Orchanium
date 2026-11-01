@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import json
+import logging
 import time
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -20,9 +21,24 @@ import httpx
 from pydantic import BaseModel, Field
 
 from ..config import settings
+from ..events import MetaCall, current_agent
 from ..store import get_store, hash_key
 
 CACHE_NS = "llm.v1"
+
+# One line per Meta API request, so a terminal beside the app shows which model
+# is being called and what it cost. Never carries prompt text.
+log = logging.getLogger("orchanium.meta")
+
+
+def price_of(model: str, usage: dict, searches: int = 0) -> float:
+    """USD for one call. Pure: used both for budget accounting and telemetry,
+    so the number shown on screen is the number that was charged."""
+    p_in, p_cached, p_out = settings.price.get(model, settings.price["muse-spark-1.3"])
+    tin = usage.get("input_tokens", 0)
+    cached = (usage.get("input_tokens_details") or {}).get("cached_tokens", 0)
+    tout = usage.get("output_tokens", 0)
+    return ((tin - cached) * p_in + cached * p_cached + tout * p_out) / 1e6 + searches * settings.price_per_search
 
 
 class BudgetExceeded(RuntimeError):
@@ -73,11 +89,9 @@ class Budget:
                 raise BudgetExceeded(f"{what} budget reached: {used:g} of {cap:g}{phase}")
 
     def add_llm(self, model: str, usage: dict, searches: int) -> float:
-        p_in, p_cached, p_out = settings.price.get(model, settings.price["muse-spark-1.3"])
         tin = usage.get("input_tokens", 0)
-        cached = (usage.get("input_tokens_details") or {}).get("cached_tokens", 0)
         tout = usage.get("output_tokens", 0)
-        usd = ((tin - cached) * p_in + cached * p_cached + tout * p_out) / 1e6 + searches * settings.price_per_search
+        usd = price_of(model, usage, searches)
         c = self.cost
         c.llm_calls += 1
         c.tokens_in += tin
@@ -205,6 +219,9 @@ class MetaClient:
         # blind mode sets this; every request is scrubbed on the way out, so no
         # agent, prompt or tool result can carry a hidden name to the model
         self.redact: Callable[[str], str] | None = None
+        # telemetry only: the run publishes these as `meta.call` events so the
+        # UI can show live model calls. Never allowed to affect a run's result.
+        self.on_meta_call: Callable[[MetaCall], None] | None = None
         self._http = httpx.AsyncClient(
             base_url=settings.meta_base_url,
             headers={"Authorization": f"Bearer {settings.meta_api_key}"},
@@ -226,9 +243,30 @@ class MetaClient:
             return {k: self.scrub(v) for k, v in obj.items()}
         return obj
 
+    def _emit(self, call: MetaCall) -> None:
+        """Report one model call. Telemetry must never break a run, so every
+        failure here is swallowed."""
+        try:
+            if call.cached:
+                log.info("meta ← %s  %s  cached", call.model, call.agent_id or "-")
+            else:
+                log.info(
+                    "meta ← %s  %s  %.2fs  %s in / %s out  %d searches  $%.4f",
+                    call.model, call.agent_id or "-", call.latency_s,
+                    f"{call.tokens_in:,}", f"{call.tokens_out:,}", call.searches, call.usd,
+                )
+            if self.on_meta_call:
+                self.on_meta_call(call)
+        except Exception:  # noqa: BLE001
+            pass
+
     async def _post(self, body: dict, attempts: int = 3) -> dict:
         body = self.scrub(body)
-        last = None
+        model = str(body.get("model") or settings.meta_model)
+        web_search = any(t.get("type") == "web_search" for t in (body.get("tools") or []))
+        agent = current_agent.get()
+        log.info("meta → %s  %s  web_search=%s", model, agent or "-", "on" if web_search else "off")
+        last, t0 = None, time.time()
         for i in range(attempts):
             try:
                 r = await self._http.post("/responses", json=body)
@@ -236,7 +274,19 @@ class MetaClient:
                 last = str(e)
             else:
                 if r.status_code == 200:
-                    return r.json()
+                    data = r.json()
+                    usage = data.get("usage") or {}
+                    searches = sum(1 for o in (data.get("output") or [])
+                                   if o.get("type") == "web_search_call")
+                    self._emit(MetaCall(
+                        agent_id=agent, model=model, response_id=data.get("id"),
+                        latency_s=round(time.time() - t0, 2),
+                        tokens_in=usage.get("input_tokens", 0),
+                        tokens_out=usage.get("output_tokens", 0),
+                        searches=searches, usd=round(price_of(model, usage, searches), 5),
+                        web_search=web_search,
+                    ))
+                    return data
                 last = f"HTTP {r.status_code}: {r.text[:500]}"
                 if r.status_code not in (408, 409, 429, 500, 502, 503, 504):
                     raise MetaAPIError(last)
@@ -277,9 +327,11 @@ class MetaClient:
         body = self.scrub(body)
         key = hash_key(body)
         store = get_store()
-        if use_cache and (hit := store.cache_get(CACHE_NS, key)):
+        if use_cache and not settings.no_cache and (hit := store.cache_get(CACHE_NS, key)):
             self.budget.add_cached()
             resp = MetaResponse(**{**hit, "cached": True, "usd": 0.0})
+            self._emit(MetaCall(agent_id=current_agent.get(), model=model,
+                                response_id=resp.id, cached=True, web_search=web_search))
             return self._attach_parsed(resp, schema)
 
         self.budget.check("llm")
@@ -341,9 +393,11 @@ class MetaClient:
             body = _body(True)
             key = hash_key(body)
             store = get_store()
-            if (hit := store.cache_get(CACHE_NS + ".raw", key)) is not None:
+            if not settings.no_cache and (hit := store.cache_get(CACHE_NS + ".raw", key)) is not None:
                 data = hit
                 self.budget.add_cached()
+                self._emit(MetaCall(agent_id=current_agent.get(), model=model,
+                                    response_id=data.get("id"), cached=True))
             else:
                 self.budget.check("llm")
                 data = await self._post(body)

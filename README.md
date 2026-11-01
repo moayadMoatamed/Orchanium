@@ -43,6 +43,37 @@ Four views, each a pure reduction of one event stream, so any run can be replaye
 
 ---
 
+## Where Meta's models are used
+
+Every model call goes through one client (`backend/orchanium/meta/client.py`) and is
+published as a `meta.call` event, so the app shows each request live — model, which
+agent asked, latency, tokens, web searches and cost — and the run's event log is a
+complete record of model usage afterwards. Cached calls are emitted too, marked
+`cached`, rather than quietly omitted.
+
+| Where | Model | What it does |
+|---|---|---|
+| `sources/web.py` — up to 5 researchers in parallel | `muse-spark-1.3` | the model's own web search, asked for published reactions of a given *type* on a *class* of substrate — **including failures**. This is the part that makes the whole approach work: the literature has no entry for your molecule, only clues scattered across unrelated papers. |
+| `agents/debate.py` — Builder | `muse-spark-1.3` | proposes a route and defends each step against the graph, with a procedure and conditions |
+| `agents/debate.py` — Skeptic | `muse-spark-1.3` | attacks it; an objection stands unless the evidence answers it, and standing objections cost confidence |
+| `agents/reporter.py`, `agents/conditions.py` | `muse-spark-1.3` | writes the report, and suggests conditions only where no source reported them |
+| `meta/sam.py` | `sam-3.1` | wired to read structures out of paper figures. **Not exercised in the demo runs** — both report `sam_images: 0`. |
+
+Structured output is used throughout: every agent answer comes back against a strict
+JSON schema, which is what lets `agents/citation_checker.py` validate each citation
+against the graph by code and strike the ones that point at nothing.
+
+**What the model does not do.** Structure resolution, disconnection, the chemistry
+critic's six checks, precedent scoring and grading, route assembly, citation validation,
+blind-mode filtering, and **the verdict and its confidence** are all deterministic code.
+Agents argue; a fixed rule decides. That boundary is the product.
+
+To reproduce with your own key, set `META_API_KEY` (see [Configuration](#configuration))
+and run with `ORCHANIUM_NO_CACHE=1`, which skips the response cache so every call in the
+run is a real request.
+
+---
+
 ## How it works
 
 ```
