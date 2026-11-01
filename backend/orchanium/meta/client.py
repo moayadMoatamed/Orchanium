@@ -12,6 +12,7 @@ import asyncio
 import copy
 import json
 import logging
+import sys
 import time
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -28,7 +29,17 @@ CACHE_NS = "llm.v1"
 
 # One line per Meta API request, so a terminal beside the app shows which model
 # is being called and what it cost. Never carries prompt text.
+#
+# It owns its handler and does not propagate: uvicorn reconfigures logging when
+# it boots, and a logger that relies on the root handler goes silent depending
+# on import order. This log is demo evidence, so it has to be certain.
 log = logging.getLogger("orchanium.meta")
+if not log.handlers:
+    _h = logging.StreamHandler(sys.stdout)
+    _h.setFormatter(logging.Formatter("%(message)s"))
+    log.addHandler(_h)
+log.setLevel(logging.INFO)
+log.propagate = False
 
 
 def price_of(model: str, usage: dict, searches: int = 0) -> float:
