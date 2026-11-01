@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field
 from ..config import settings
 from ..events import MetaCall, current_agent
 from ..store import get_store, hash_key
+from ..termlog import blue, dim, green
 
 CACHE_NS = "llm.v1"
 
@@ -258,13 +259,19 @@ class MetaClient:
         """Report one model call. Telemetry must never break a run, so every
         failure here is swallowed."""
         try:
+            who = (call.agent_id or "-").ljust(13)
             if call.cached:
-                log.info("meta ← %s  %s  cached", call.model, call.agent_id or "-")
+                log.info("%s %s %s %s", dim("meta ←"), blue(call.model), who, dim("cached"))
             else:
+                searches = (f"{call.searches} search" + ("" if call.searches == 1 else "es")
+                            if call.searches else "")
                 log.info(
-                    "meta ← %s  %s  %.2fs  %s in / %s out  %d searches  $%.4f",
-                    call.model, call.agent_id or "-", call.latency_s,
-                    f"{call.tokens_in:,}", f"{call.tokens_out:,}", call.searches, call.usd,
+                    "%s %s %s %s  %s  %s  %s",
+                    dim("meta ←"), blue(call.model), who,
+                    f"{call.latency_s:6.2f}s",
+                    f"{call.tokens_in:>9,} in / {call.tokens_out:>6,} out",
+                    searches.ljust(11),
+                    green(f"${call.usd:.4f}"),
                 )
             if self.on_meta_call:
                 self.on_meta_call(call)
@@ -276,7 +283,8 @@ class MetaClient:
         model = str(body.get("model") or settings.meta_model)
         web_search = any(t.get("type") == "web_search" for t in (body.get("tools") or []))
         agent = current_agent.get()
-        log.info("meta → %s  %s  web_search=%s", model, agent or "-", "on" if web_search else "off")
+        log.info("%s %s %s %s", dim("meta →"), blue(model), (agent or "-").ljust(13),
+                 dim("web_search=on" if web_search else "web_search=off"))
         last, t0 = None, time.time()
         for i in range(attempts):
             try:
