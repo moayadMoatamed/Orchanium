@@ -18,6 +18,16 @@ label. A fixed rule over the graph does that.
 Built for the Meta Global AI Developer Hackathon, on the Meta Model API (Muse Spark for reasoning
 and tool use, SAM 3.1 for reading structures out of figures).
 
+This is a ground-up rebuild of an earlier proof of concept,
+[Orchanium POC](https://github.com/moayadMoatamed/Orchanium). That version proposed disconnections
+with a model and validated them with RDKit. What is new here is everything the answer now rests on:
+literature clue-mining into a knowledge graph, precedent grading, the Builder/Skeptic debate, a
+computed verdict, a knowledge graph that outlives the run, lab notes that outrank published work,
+and the blind-mode validation harness.
+
+**Documentation:** [architecture](docs/ARCHITECTURE.md) ·
+[blind-test evidence](docs/blind-test-evidence.md)
+
 ---
 
 ## What it looks like
@@ -103,39 +113,70 @@ That argument exists only because failed reactions are indexed alongside success
 
 ## Results
 
-### Blind held-out tests
+### How the claim is tested
 
-The hard part of evaluating this is that the answer for any known molecule is on the internet. So
-there are two stricter modes:
+For any molecule that has already been made, the answer is somewhere on the internet. So there is
+a **blind mode**, used for validation only.
 
-- **Blind** — every source that names or contains the target is discarded before it reaches the graph.
-- **Strict** — additionally, any precedent whose product is more than 45% similar to the target is
-  dropped, so the system cannot lean on near-identical chemistry. It must generalise.
+> Blind mode is not a feature for real use. It deliberately throws away good evidence. A chemist
+> who wants the best answer leaves it off. It exists to test whether the system can work without
+> being handed the answer.
 
-Targets were chosen by searching the USPTO corpus for reactions that are *not* widely written up, so
-the route could not simply be found.
+It asks two questions of every clue, rather than keeping a list of special cases:
 
-| Target | Mode | Steps recovered | Verdict | Confidence | Cost |
-|---|---|---|---|---|---|
-| US20160024004A1 (sulfonamide benzamide) | blind | **2 / 2** | Plausible | 0.67 | $0.30 |
-| US20160024004A1 | **strict** | **2 / 2** | Plausible | 0.51 | $0.28 |
-| US07732444B2 (pyrimidinyl benzylamine) | **strict** | 1 / 2 | Uncertain | 0.40 | $0.63 |
-| Paracetamol | blind | full route | Feasible | 0.78 | $0.70 |
+1. **Does this evidence describe the target's own chemistry?** — it is the molecule, it is built on
+   the molecule's ring skeleton (what a chemical series and a patent family share), or it is a
+   fingerprint near-twin.
+2. **Does the document it came from know the target?** — it names it, it was held out, or another
+   record in it already gave the answer away.
 
-Both steps of US20160024004A1 came back under the strict cap, correctly classed, sharing reactants
-with the real patent — with the confidence honestly dropping from 0.67 to 0.51 as the evidence was
-taken away. On US07732444B2 it found the reductive amination but not the Suzuki coupling, and said
-so: its own Skeptic flagged the weak step and the verdict came out *Uncertain*, not a confident
-wrong answer.
+Either hides the clue, and one leak anywhere hides the **whole document**, because a paper that
+knows the answer leaks its conditions and quantities too. Separately, every name the target is
+known by is scrubbed from every model request, so an agent cannot recall a route from the name.
+
+### Blind runs on recent drugs (1 Nov 2026)
+
+| Target | Dropped as leaks | Result | Cost |
+|---|---|---|---|
+| **Nirmatrelvir** (Paxlovid) | 14 clues, 41 names | Found the right disconnections; justified the key step from **hepatitis C** chemistry after the COVID literature was removed. Uncertain, 0.49 | $0.57 |
+| **Sotorasib** (Lumakras) | 41 clues, including the makers' own paper on the key coupling | Built a **complete 7-step route** from 8 buyable chemicals, matching the real manufacturing route. Its own Skeptic then found the one place its route differs from the real one. Uncertain, 0.55 | $0.79 |
+
+Each of those runs exposed a hole in our own blinding, which is what the two questions above are.
+The full write-up, including what these results do **not** prove, is in
+[docs/blind-test-evidence.md](docs/blind-test-evidence.md).
+
+### Held-out patent tests
+
+`scripts/eval_holdout.py` hides the patent, **every intermediate on its real route**, and then
+scores the proposed route against the real one automatically. This is the stricter standard,
+because it removes the loophole where a route is rebuilt from a patent about one of its parts.
+
+| Target | Steps recovered | Verdict | Confidence | Cost |
+|---|---|---|---|---|
+| US20160024004A1 (sulfonamide benzamide) | **2 / 2** | Plausible | 0.67 | $0.30 |
+| US20160024004A1, with the similarity cap | **2 / 2** | Plausible | 0.51 | $0.28 |
+| US07732444B2 (pyrimidinyl benzylamine) | 1 / 2 | Uncertain | 0.40 | $0.63 |
+
+> These three were measured **before** the blinding was tightened on 1 Nov 2026, so they ran under
+> a weaker filter than the drug runs above. They are reported as they were obtained, not restated
+> under the current rules.
+
+On US07732444B2 it found the reductive amination but not the Suzuki coupling, and said so: its own
+Skeptic flagged the weak step and the verdict came out *Uncertain*, not a confident wrong answer.
+
+**Route accuracy is not yet measured at scale.** One case under the current, strictest filter
+scored 0 / 2 — while proposing a chemically sound route that used both correct reaction types in
+the opposite order, which the scorer counts as a miss because it requires the same intermediate.
+There is no accuracy figure to quote yet, and none is claimed.
 
 ### Live runs
 
 | Target | Result | Cost |
 |---|---|---|
 | **Ibuprofen** | Recovered the real **3-step BHC industrial route** — Friedel–Crafts acylation → carbonyl reduction → Pd/CO carbonylation — with conditions from the patents (82 °C, isopropanol, MgO on activated carbon, 8 h). Feasible, 0.97, 27 sources | $0.48 |
-| **A molecule with no PubChem record** | Feasible, 0.72, route back to buyable materials | $0.55 |
+| **Palmitoyl tripeptide-1** | 3 bond-forming steps plus 4 protection steps, conditions anchored to one named patent per step | $0.39 |
 
-A full run costs roughly **$0.30–$0.70** and is capped — spend, token, search and tool-call budgets
+A full run costs roughly **$0.30–$0.80** and is capped — spend, token, search and tool-call budgets
 are reserved per phase, so a long research phase cannot starve the debate.
 
 ### What it does not do yet
@@ -146,9 +187,12 @@ Stated plainly, because the limits matter as much as the results:
   weight once a clue is extracted; only structural similarity moves the score.
 - **Most web citations cannot be verified.** Publishers block automated fetches, so the citation
   checker often has to report "unverifiable" rather than "verified". Patent citations check cleanly.
-- **~20 reaction templates.** Enough for a large slice of medicinal chemistry, not for all of it.
+- **A finite reaction-template registry.** The Builder can propose steps outside it, but automatic
+  disconnection is limited to the templates in `chem/reactions.py`.
 - **Reasoning is connectivity-level**, not mechanistic. It argues about which bonds can be formed
   from what, with what precedent — not about transition states.
+- **Run-to-run variation.** The same input can land on a slightly different route and confidence,
+  because the agents are not deterministic. The verdict rule applied to them is.
 - **Meta's content filter occasionally blocks the debate prompt.** The run survives it: the report
   falls back to a deterministic template and the verdict is capped at Plausible with the reason
   stated.
