@@ -27,6 +27,7 @@ from .events import CostEvt, Event, EventBus
 from .graph import KnowledgeGraph
 from .memory import MemorySource
 from .meta.client import Budget, MetaClient
+from .meta.client import log as meta_log
 from .sources.uspto import USPTOSource
 from .sources.web import WebSource
 from .store import get_store
@@ -164,6 +165,13 @@ class Orchestrator:
         # publish every Meta API call as it completes, so the UI can show the
         # model working live. Telemetry only: it changes no result.
         client.on_meta_call = lambda call: self.bus.publish("meta.call", call)
+        meta_log.info("")
+        meta_log.info("\u2500\u2500 run %s  \u00b7  %s  \u00b7  blind mode %s",
+                      self.run_id, self.query, "ON" if self.blind else "off")
+        meta_log.info("   model %s  \u00b7  %s  \u00b7  cache %s",
+                      settings.meta_model, settings.meta_base_url,
+                      "bypassed, every call is live" if settings.no_cache else "on")
+        meta_log.info("")
         self.ctx = ctx = RunContext(run_id=self.run_id, bus=self.bus, client=client, blind=self.blind,
                                     hidden=self.hidden, hidden_molecules=self.hidden_molecules,
                                     similarity_cap=self.similarity_cap)
@@ -182,6 +190,12 @@ class Orchestrator:
             summary = self._summarise(v, failure)
             self._keep_clues()
             self.bus.publish("run.status", {"status": status, "target": self.query, "summary": summary})
+            c = self.budget.cost
+            meta_log.info("")
+            meta_log.info("\u2500\u2500 %s  \u00b7  %d model calls  \u00b7  %d web searches  \u00b7  "
+                          "%s tokens in / %s out  \u00b7  $%.2f",
+                          status, c.llm_calls, c.searches, f"{c.tokens_in:,}", f"{c.tokens_out:,}", c.usd)
+            meta_log.info("")
             store.finish_run(self.run_id, status, summary)
             self.bus.close()
         return {"run_id": self.run_id, "status": status, "verdict": v, "debate": dbt,
