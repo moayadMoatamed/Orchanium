@@ -111,6 +111,8 @@ function MethodStep({ s, step, testFirst }: { s: ReturnType<typeof useRun.getSta
   const ops = d?.procedure ?? [];
   const protection = ops.filter((o) => o.kind === "protect" || o.kind === "deprotect");
   const objection = step.objections?.[0];
+  const notes = d?.lab_notes ?? [];
+  const unguarded = d?.competing_groups && !protection.length;
   const anchor = Object.values(fields).find((f) => f.source);
   const tone = testFirst ? TONE.warn : null;
 
@@ -158,6 +160,19 @@ function MethodStep({ s, step, testFirst }: { s: ReturnType<typeof useRun.getSta
           </div>
         )}
         {d?.plain && <p>{d.plain}</p>}
+        {unguarded && (
+          <p style={{ color: TONE.warn.fg }}>
+            The chemistry check found groups that could react in the wrong place, and this procedure
+            does not protect them.
+          </p>
+        )}
+        {notes.map((n) => (
+          <p key={n.id} style={{ color: TONE.lab.fg }}>
+            Your lab: it {n.outcome === "success" ? "worked" : "did not work"}
+            {n.yield_pct != null && `, ${n.yield_pct}% yield`}
+            {n.observations ? ` — ${n.observations}` : "."}
+          </p>
+        ))}
         {testFirst && (
           <p style={{ color: TONE.warn.fg }}>
             Weakest step. {objection?.plain || objection?.claim ||
