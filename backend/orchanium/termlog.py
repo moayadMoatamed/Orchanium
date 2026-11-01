@@ -60,6 +60,10 @@ def amber(t: str) -> str:
     return _c("38;5;179", t)
 
 
+def rejected(t: str) -> str:
+    return _c("38;5;131", t)
+
+
 def rule(width: int = 62) -> str:
     return dim("─" * width)
 
@@ -108,5 +112,45 @@ def phase(key: str) -> None:
 
 def note(text: str) -> None:
     _log().info("  %s", dim(text))
+
+
+WIDTH = 72
+
+
+def _wrap(text: str, first: str, cont: str) -> list[str]:
+    """Hard-wrap so a narrow terminal beside the app never breaks a column."""
+    words, lines, cur = text.split(), [], first
+    pad = " " * len(cont)
+    for w in words:
+        if len(cur) + len(w) + 1 > WIDTH and cur.strip() not in (first.strip(), ""):
+            lines.append(cur)
+            cur = cont if not lines[1:] else pad
+        cur += ("" if cur.endswith(" ") or not cur.strip() else " ") + w
+    if cur.strip():
+        lines.append(cur)
+    return lines
+
+
+def agent_line(agent: str, text: str, level: str = "info") -> None:
+    """What an agent actually did — the part a judge can learn something from."""
+    log = _log()
+    paint = rejected if level == "error" else amber if level == "warn" else (lambda t: t)
+    blind = text.startswith("blind mode:")
+    if blind:
+        text = text.split("blind mode:", 1)[1].strip()
+        head = f"  {_c('38;5;131', '\u2717')} {dim('blind')}  "
+        plain = "  x blind  "
+    else:
+        head = f"  {dim(agent)}  "
+        plain = f"  {agent}  "
+    for i, line in enumerate(_wrap(text, " " * len(plain), " " * len(plain))):
+        body = paint(line.strip()) if i == 0 else paint(line.rstrip())
+        log.info("%s%s", head if i == 0 else " " * len(plain), body if i == 0 else line.strip())
+
+
+def search_line(query: str, results: int) -> None:
+    """The query the model actually sent, and how much came back."""
+    q = query if len(query) <= 52 else query[:51] + "\u2026"
+    _log().info("    %s  %s %s", dim("web"), _c("38;5;180", f'"{q}"'), dim(f"\u00b7 {results}"))
 
 

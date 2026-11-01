@@ -62,6 +62,14 @@ class RunContext:
 
     def log(self, agent_id: str, text: str, level: str = "info") -> None:
         self.bus.log(agent_id, text, level)
+        # the same line goes to the terminal: during a demo it is the only
+        # place a viewer can see what an agent actually did
+        try:
+            from .termlog import agent_line
+
+            agent_line(agent_id, text, level)
+        except Exception:  # noqa: BLE001
+            pass
 
     def agent_status(self, agent_id: str, agent_type: str, label: str, status: str, message: str = "") -> None:
         self.bus.publish("agent.status", AgentStatus(agent_id=agent_id, agent_type=agent_type,
