@@ -295,6 +295,7 @@ cd backend && python -m orchanium.cli run "ibuprofen" --blind --rounds 2
 | `META_MODEL_CHEAP` | Model for high-volume, low-stakes calls |
 | `SAM_MODEL` | Segmentation model for reading figures, default `sam-3.1` |
 | `FETCH_CONTACT_URL` | A URL identifying you, sent in the citation checker's User-Agent. Wikipedia and some publishers refuse anonymous bots; set it to your repo URL |
+| `ORCHANIUM_NO_CACHE` | `1` skips reading the response cache, so every model call in the run is a real request. Use it to reproduce a run, or to record one |
 
 Per-run guardrails (spend cap, call caps, route depth) live in
 [`backend/orchanium/config.py`](backend/orchanium/config.py).
