@@ -10,6 +10,8 @@
   and return a step-by-step route to make a molecule, with every step backed by a source.
 </p>
 
+   <p align="center"><a href="https://www.youtube.com/watch?v=VFYUAe-Ta9s"><b>▶ Watch the 3-minute demo</b></a></p>
+
 <p align="center">
   <a href="#quick-start">Quick start</a> ·
   <a href="#how-it-works">How it works</a> ·
