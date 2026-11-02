@@ -33,14 +33,22 @@ export default function App() {
 
   async function start(target: string, opts: { blind: boolean }) {
     disconnect.current?.();
-    const res = await fetch("/api/runs", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ target, blind: opts.blind }),
-    });
-    const { run_id } = await res.json();
-    useRun.getState().reset(run_id, target);
-    disconnect.current = useRun.getState().connect(run_id);
+    // Starting can take a few seconds (the server resolves the molecule first),
+    // so the UI shows it at once rather than looking stuck.
+    useRun.setState({ starting: true, startError: null, target });
+    try {
+      const res = await fetch("/api/runs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ target, blind: opts.blind }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || !body.run_id) throw new Error(body.detail ?? `The run could not start (${res.status}).`);
+      useRun.getState().reset(body.run_id, target);
+      disconnect.current = useRun.getState().connect(body.run_id);
+    } catch (e) {
+      useRun.setState({ starting: false, startError: e instanceof Error ? e.message : String(e) });
+    }
   }
 
   function open(runId: string, replaySpeed = 0) {

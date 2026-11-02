@@ -1,10 +1,12 @@
-import { EyeOff, Search } from "lucide-react";
+import { EyeOff, Loader2, Search } from "lucide-react";
 import { Logo } from "./Logo";
 import { useEffect, useState } from "react";
 import { elapsed, useRun } from "../state/runStore";
 import { Mono } from "./primitives";
 
 function statusLine(s: ReturnType<typeof useRun.getState>, secs: number) {
+  if (s.starting) return { live: true, text: "Starting run…" };
+  if (s.startError) return { live: false, text: s.startError };
   const mins = secs >= 60 ? `${Math.floor(secs / 60)} min` : `${Math.round(secs)}s`;
   const sources = Object.values(s.prov).filter((n) => n.node_type === "source").length;
   if (s.status === "running") {
@@ -35,7 +37,7 @@ export function TopBar({ onRun }: { onRun: (target: string, opts: { blind: boole
   }, [s.status]);
 
   const st = statusLine(s, elapsed(s));
-  const busy = s.status === "running";
+  const busy = s.status === "running" || s.starting;
 
   return (
     <header className="sticky top-0 z-20 border-b border-hairline bg-ground/90 backdrop-blur">
@@ -58,7 +60,9 @@ export function TopBar({ onRun }: { onRun: (target: string, opts: { blind: boole
                        focus:border-accent/50 focus:ring-1 focus:ring-accent/20"
           />
           <button type="submit" className="btn-primary shrink-0" disabled={busy || !value.trim()}>
-            <Search size={15} strokeWidth={2} aria-hidden /> Find route
+            {busy
+              ? <><Loader2 size={15} strokeWidth={2} className="animate-spin" aria-hidden /> {s.starting ? "Starting…" : "Running…"}</>
+              : <><Search size={15} strokeWidth={2} aria-hidden /> Find route</>}
           </button>
         </form>
 
