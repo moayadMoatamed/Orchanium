@@ -8,6 +8,16 @@
 [![Docker](https://img.shields.io/badge/run%20with-docker%20compose-2496ED?logo=docker&logoColor=white)](#quick-start)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
+<p align="center">
+  <a href="#the-headline-result-a-cancer-drug-worked-out-blind"><b>Headline result</b></a> ·
+  <a href="#quick-start"><b>Quick start</b></a> ·
+  <a href="#results"><b>Results</b></a> ·
+  <a href="#which-meta-models-do-what"><b>Meta models</b></a> ·
+  <a href="#inside-a-run"><b>How it works</b></a> ·
+  <a href="#using-the-app"><b>Using the app</b></a> ·
+  <a href="#built-during-the-hackathon"><b>What's new</b></a>
+</p>
+
 - **The problem.** Scientists can design a molecule that should treat a disease, a drug that
   shuts down a cancer protein, say. They know its final shape, not how to build it: which buyable
   chemicals to start from, which reactions in which order, and under what conditions. Working that
@@ -34,6 +44,26 @@
 > for challenging the system on molecules whose answer is already known, or for when you want a
 > route worked out without existing papers on the target.
 
+<p align="center"><sub>Built for the Meta Global AI Developer Hackathon (Oct 26 – Nov 4, 2026) · <a href="https://www.youtube.com/watch?v=VFYUAe-Ta9s">3-minute video</a> · evolved from <a href="https://github.com/moayadMoatamed/Orchanium-POC">Orchanium-POC</a>, rebuilt from scratch (<a href="#built-during-the-hackathon">what is new</a>) · <a href="#limitations">known gaps</a></sub></p>
+
+<details>
+<summary><b>Contents</b></summary>
+
+- [The headline result: a cancer drug, worked out blind](#the-headline-result-a-cancer-drug-worked-out-blind)
+- [Quick start](#quick-start)
+  - [Without Docker](#without-docker) · [Patent index (optional)](#optional-the-patent-reaction-index) · [Configuration](#configuration-env) · [Tests](#tests)
+- [Results](#results)
+- [Which Meta models do what](#which-meta-models-do-what)
+- [Inside a run](#inside-a-run)
+- [Using the app](#using-the-app)
+- [Built during the hackathon](#built-during-the-hackathon)
+- [Repository layout](#repository-layout)
+- [Limitations](#limitations)
+
+</details>
+
+## The headline result: a cancer drug, worked out blind
+
 <img src="docs/assets/blind-vs-amgen.jpg" alt="Orchanium's blind route for sotorasib next to Amgen's published route: steps 1 and 4 match, steps 2 and 3 are in swapped order, and that is the step Orchanium flagged as unproven." width="100%">
 
 **What this image shows.** Sotorasib (Lumakras) is a cancer drug that blocks KRAS G12C, a
@@ -57,8 +87,6 @@ is Amgen's commercial process ([Org. Process Res. Dev. 2022](https://doi.org/10.
   place it diverged from the experts is the one place it said it was unsure.
 
 <p align="center"><sub>Full write-up, including what this result does <i>not</i> prove: <a href="docs/blind-test-evidence.md">blind-test evidence</a>.</sub></p>
-
-<p align="center"><sub>Built for the Meta Global AI Developer Hackathon (Oct 26 – Nov 4, 2026) · <a href="https://www.youtube.com/watch?v=VFYUAe-Ta9s">3-minute video</a> · evolved from <a href="https://github.com/moayadMoatamed/Orchanium-POC">Orchanium-POC</a>, rebuilt from scratch (<a href="#built-during-the-hackathon">what is new</a>) · <a href="#limitations">known gaps</a></sub></p>
 
 ## Quick start
 
