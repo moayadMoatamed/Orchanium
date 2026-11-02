@@ -1,14 +1,23 @@
+# secrets: the API key lives in .env, never in the repo
 .env
+
+# Python
 .venv/
 __pycache__/
 *.pyc
 .pytest_cache/
-data/
+
+# Node / build output
 node_modules/
 frontend/dist/
+frontend/tsconfig.tsbuildinfo
+
+# Runtime data: runs, cache, the USPTO index (rebuilt by scripts/)
+data/*
+# ...except the small reaction-class priors that confidence scores use
+!data/class_priors.json
+
+# local tooling
+.claude/
 .DS_Store
 scripts/_smoke_out/
-frontend/node_modules/
-frontend/dist/
-scripts/_smoke_out/
-frontend/tsconfig.tsbuildinfo
