@@ -26,6 +26,9 @@ export interface MetaCall {
 
 interface RunState {
   runId: string | null;
+  /** The request to start a run is in flight (the server resolves the target first). */
+  starting: boolean;
+  startError: string | null;
   status: "idle" | "running" | "done" | "failed";
   target: string;
   targetInfo: TargetInfo | null;
@@ -67,6 +70,8 @@ const EMPTY_COST: Cost = {
 
 export const useRun = create<RunState>((set, get) => ({
   runId: null,
+  starting: false,
+  startError: null,
   status: "idle",
   target: "",
   targetInfo: null,
@@ -101,7 +106,7 @@ export const useRun = create<RunState>((set, get) => ({
 
   reset: (runId, target) =>
     set({
-      runId, target, status: "running", targetInfo: null, blind: false,
+      runId, target, status: "running", targetInfo: null, blind: false, starting: false, startError: null,
       startedAt: null, finishedAt: null, lastEventTs: null,
       molecules: {}, reactions: {}, prov: {}, provOrder: [], agents: {}, agentOrder: [],
       cost: EMPTY_COST, metaCalls: [], verdict: null, report: null, summary: null, revisions: [],

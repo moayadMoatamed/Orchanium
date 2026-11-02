@@ -4,7 +4,9 @@ import {
   ArrowRight, BookOpen, BrainCircuit, CircleAlert, Copy, Download, FileCheck2, FlaskConical, Library,
   Microscope, PackageCheck, RotateCcw, Scale, ShieldAlert, ShieldCheck, Target, TriangleAlert,
 } from "lucide-react";
-import { failureOf, routeStory, stepCount, targetName, useRun } from "../state/runStore";
+import { Loader2 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { elapsed, failureOf, routeStory, stepCount, targetName, useRun } from "../state/runStore";
 import type { Revision } from "../state/types";
 import { firstSentence, plural, readable } from "../textutil";
 import { TONE, VERDICT, confidenceWords, type VerdictLabel } from "../tokens";
@@ -160,6 +162,47 @@ function Intro() {
   );
 }
 
+/** Shown from the click until the first route appears: a run takes minutes,
+ *  so it says what is happening now and keeps moving. */
+function Working({ s }: { s: ReturnType<typeof useRun.getState> }) {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => tick((n) => n + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
+  let phase = s.starting ? "Resolving the molecule" : "Starting the agents";
+  let latest = 0;
+  for (const id of s.agentOrder) {
+    const a = s.agents[id];
+    const last = a?.logs[a.logs.length - 1];
+    if (last && last.ts > latest) { latest = last.ts; phase = `${a.label}: ${last.text}`; }
+  }
+  const secs = s.starting ? 0 : Math.max(0, Math.round(elapsed(s)));
+  const time = secs >= 60 ? `${Math.floor(secs / 60)} min ${secs % 60}s` : `${secs}s`;
+  return (
+    <div className="mx-auto max-w-[940px] px-6 py-12">
+      <div className="label">Working on {s.target || targetName(s)}</div>
+      <h1 className="mt-3 max-w-xl text-[30px] font-semibold leading-[1.18] tracking-[-0.02em]">
+        Looking for published evidence behind each possible step…
+      </h1>
+      <p className="mt-3 max-w-lg text-muted">
+        A run usually takes 5–10 minutes. The answer appears here once every step has been
+        weighed; the Route map shows the route taking shape in the meantime.
+      </p>
+      <div className="mt-7 max-w-xl">
+        <div className="flex items-center gap-2.5 text-[13.5px]">
+          <Loader2 size={16} strokeWidth={2} className="shrink-0 animate-spin text-accent" aria-hidden />
+          <span className="min-w-0 truncate">{phase}</span>
+          <span className="ml-auto shrink-0 font-mono text-[12px] text-muted">{time}</span>
+        </div>
+        <div className="mt-3 h-[3px] overflow-hidden rounded-full bg-ink/10">
+          <div className="h-full w-1/3 animate-progress rounded-full bg-accent" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function ResultView({ onRetry }: { onRetry: (target: string) => void }) {
   const s = useRun();
   const { steps, buy, target } = routeStory(s);
@@ -169,23 +212,11 @@ export function ResultView({ onRetry }: { onRetry: (target: string) => void }) {
   const meta = VERDICT[label] ?? VERDICT.Uncertain;
   const tone = TONE[meta.tone];
 
+  if (s.starting) return <Working s={s} />;
   if (s.status === "idle" && !steps.length) return <Intro />;
   if (s.status === "failed" && !steps.length) return <Stopped s={s} onRetry={onRetry} />;
 
-  if (!steps.length && s.status === "running") {
-    return (
-      <div className="mx-auto max-w-[940px] px-6 py-12">
-        <div className="label">Working on {targetName(s)}</div>
-        <h1 className="mt-3 max-w-xl text-[30px] font-semibold leading-[1.18] tracking-[-0.02em]">
-          Looking for published evidence behind each possible step…
-        </h1>
-        <p className="mt-3 max-w-lg text-muted">
-          The answer appears here once every step has been weighed. The Graph tab shows the
-          route taking shape in the meantime.
-        </p>
-      </div>
-    );
-  }
+  if (!steps.length && s.status === "running") return <Working s={s} />;
 
   if (!steps.length) {
     return (

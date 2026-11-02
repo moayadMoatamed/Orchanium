@@ -25,9 +25,10 @@ export default {
       },
       keyframes: {
         livedot: { "0%,100%": { opacity: "1" }, "50%": { opacity: "0.25" } },
+        progress: { "0%": { transform: "translateX(-100%)" }, "100%": { transform: "translateX(300%)" } },
         rise: { from: { opacity: "0", transform: "translateY(4px)" }, to: { opacity: "1", transform: "none" } },
       },
-      animation: { livedot: "livedot 1.4s ease-in-out infinite", rise: "rise .25s ease-out both" },
+      animation: { livedot: "livedot 1.4s ease-in-out infinite", progress: "progress 1.6s ease-in-out infinite", rise: "rise .25s ease-out both" },
     },
   },
   plugins: [],
