@@ -1,126 +1,41 @@
-<p align="center">
-  <img src="frontend/public/icon.svg" width="88" alt="Orchanium logo">
-</p>
+# Orchanium
 
-<h1 align="center">Orchanium</h1>
+<img src="docs/assets/banner.png" alt="Orchanium: AI agents that figure out how to make a molecule, and back every step with a source. Built on Meta Muse Spark." width="100%">
 
-<p align="center">
-  <b>Can this molecule be made, and how?</b><br>
-  AI agents on <b>Meta Muse Spark</b> research the chemistry literature, argue over the evidence,
-  and return a step-by-step route to make a molecule, with every step backed by a source.
-</p>
+[![Demo video](https://img.shields.io/badge/demo%20video-3--min%20walkthrough-red?logo=youtube)](https://www.youtube.com/watch?v=VFYUAe-Ta9s)
+[![CI](https://github.com/moayadMoatamed/Orchanium/actions/workflows/ci.yml/badge.svg)](https://github.com/moayadMoatamed/Orchanium/actions/workflows/ci.yml)
+[![Meta Muse Spark](https://img.shields.io/badge/Meta-Muse%20Spark%201.3-0866ff?logo=meta&logoColor=white)](#which-meta-models-do-what)
+[![Docker](https://img.shields.io/badge/run%20with-docker%20compose-2496ED?logo=docker&logoColor=white)](#quick-start)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
-   <p align="center"><a href="https://www.youtube.com/watch?v=VFYUAe-Ta9s"><b>▶ Watch the 3-minute demo</b></a></p>
+- **The problem.** Scientists can design a molecule that should treat a disease, a drug that
+  shuts down a cancer protein, say. They know its final shape, not how to build it: which buyable
+  chemicals to start from, which reactions in which order, and under what conditions. Working that
+  out backwards (*retrosynthesis*) takes weeks of reading patents and papers, plus costly failed
+  attempts in the lab.
+- **What Orchanium does.** Type a molecule. Agents on **Meta Muse Spark** take it apart with real
+  chemistry rules, research every step in the literature with live web search, argue the route out
+  as a *Builder* and a *Skeptic*, and return a step-by-step method: starting materials, reagents,
+  solvent, temperature, yield, the source of each, and what to test first.
+- **How well.** In **blind mode**, with all 41 documents about the cancer drug sotorasib hidden,
+  it reached the **same five building blocks and the same four reactions as the drug's published
+  manufacturing route**, and flagged as unproven the one step where its order differs. On six
+  held-out patents it recovered 6 of 12 steps, and **every miss came back *Uncertain*, never a
+  confident wrong answer.**
+- **How fast, how much.** One molecule in about 5–10 minutes and $0.30–$1.10 of API calls, with
+  a hard $2.50 cap per run.
+- **Who decides.** The model proposes and argues; the literature supplies the evidence;
+  **deterministic code** draws structures, checks every citation and computes the verdict.
 
-<p align="center">
-  <a href="#quick-start">Quick start</a> ·
-  <a href="#how-it-works">How it works</a> ·
-  <a href="#where-metas-models-do-the-work">Meta models</a> ·
-  <a href="#results">Results</a> ·
-  <a href="docs/ARCHITECTURE.md">Architecture</a>
-</p>
+<img src="docs/assets/blind-vs-amgen.jpg" alt="Orchanium's blind route for sotorasib next to Amgen's published route: steps 1 and 4 match, steps 2 and 3 are in swapped order, and that is the step Orchanium flagged as unproven." width="100%">
 
-<p align="center"><img src="docs/images/answer.jpg" width="860" alt="Orchanium's answer for sotorasib, worked out in blind mode"></p>
+<p align="center"><sub>Sotorasib, blind: Orchanium's route vs Amgen's commercial process (<a href="https://doi.org/10.1021/acs.oprd.2c00249">Org. Process Res. Dev. 2022</a>). Full write-up, including what this does <i>not</i> prove: <a href="docs/blind-test-evidence.md">blind-test evidence</a>.</sub></p>
 
----
-
-## The problem
-
-Scientists can design a molecule that should treat a disease, say a drug that shuts down a cancer
-protein. They know the **final shape**. What they don't know is **how to build it**: which
-buyable chemicals to start from, which reactions to run in which order, and under what conditions
-(temperature, solvent, catalyst) each step works.
-
-Working that out backwards is called **retrosynthesis**. Today it means days to weeks of reading
-patents and papers for every step, and failed, expensive attempts in the lab.
-
-## What Orchanium does
-
-You type a molecule (a name or a SMILES). Orchanium:
-
-1. **Takes it apart** into possible steps using real chemistry rules (RDKit reaction templates).
-2. **Researches every step.** Muse Spark agents search the web and published literature for
-   reactions like it: conditions, yields, and failures too. A 1.45M-reaction patent index is
-   searched as well.
-3. **Builds a knowledge graph** of that evidence and grades each step against it.
-4. **Debates the route.** A *Builder* agent proposes it, a *Skeptic* agent attacks every weak step,
-   and the Builder revises. Every claim must cite evidence; code checks each citation.
-5. **Computes a verdict** with a fixed rule over the evidence, not the model's opinion:
-   *Feasible / Plausible / Uncertain / Unlikely*, with a confidence and the reason.
-6. **Writes the guide:** buyable starting materials, each step's reagents, solvent, temperature,
-   time and yield, the patent or paper it came from, and *what to test first*.
-
-A run takes 5–10 minutes and costs about $0.30–$1.10 in API calls, with a hard cap per run.
-
-## How it works
-
-```mermaid
-flowchart LR
-    T([Molecule]) --> D[Decompose<br/>RDKit templates]
-    D --> R[Research<br/>Muse Spark + web search<br/>USPTO index · PubChem]
-    R --> G[(Knowledge graph<br/>evidence, graded per step)]
-    G --> B[Builder agent<br/>Muse Spark]
-    B <--> S[Skeptic agent<br/>Muse Spark]
-    S --> V{Verdict<br/>fixed rule, not a model}
-    V --> O([Route + method + what to test first])
-    L[Lab notes<br/>your own results] -.-> G
-```
-
-**The model proposes and argues. The literature provides the evidence. Deterministic code decides.**
-The model never invents a structure (names resolve through PubChem, structures come from
-databases and RDKit), never scores its own evidence, and never picks the final label.
-
-## Where Meta's models do the work
-
-Every agent runs on **Meta Muse Spark** (`muse-spark-1.3`) through the Meta Model API.
-
-| Job | What Muse Spark does | Why it matters |
-|---|---|---|
-| **Research** | Parallel researcher agents use the built-in `web_search` tool to find published reactions like each step: conditions, yields, and failed attempts | This is the evidence everything else rests on. With every source that names the drug hidden, it still found the chemistry needed to rebuild the route |
-| **Debate** | The Builder and the Skeptic reason over the graph with tool calls (`find_clues`, `precedents`, `get_node`, `propose_step`) over several rounds | The plan changes in response to objections, the way a team of chemists would argue it out |
-| **Structured output** | Every agent answers in a strict JSON schema | Code verifies each citation against the graph and discards anything uncited or invented |
-| **Report** | Writes the step-by-step method from the evidence | Reported values stay plain; inferred ones are marked |
-
-Every call is visible while a run is live: the **Meta calls** panel in the UI lists model, latency,
-tokens and cost, and the server log prints one full request and response per run.
-
-<p align="center"><img src="docs/images/live-run.jpg" width="860" alt="A live run: Meta API calls in the server log, the app on the right"></p>
-
-## Results
-
-**Blind mode** hides every source that names or describes the target, so the route has to be
-reasoned out rather than looked up. It is how we test the system on drugs whose answers exist.
-
-- **Sotorasib** (Lumakras, a KRAS G12C cancer drug). Blind, 41 documents refused, including the
-  makers' own paper on the key coupling. Orchanium reached **the same five building blocks and
-  the same four reactions as Amgen's published manufacturing route**
-  ([Org. Process Res. Dev. 2022](https://doi.org/10.1021/acs.oprd.2c00249)). It ran two of the
-  steps in the opposite order, and that is exactly the step it flagged as unproven. About
-  8 minutes, 41 model calls, $1.08.
-- **Nirmatrelvir** (Paxlovid). Blind: found the right disconnections, two amide couplings, and
-  reported honestly that the final step had no published precedent left.
-- **Ibuprofen** (not blind): recovered the real 3-step BHC industrial route with conditions from
-  the patents. Feasible, 0.97.
-- **Held-out patents:** 6 of 12 ground-truth steps recovered across 6 patents; **every miss came
-  back Uncertain**, never a confident wrong answer.
-
-Full write-up, including what these results do *not* prove:
-[docs/blind-test-evidence.md](docs/blind-test-evidence.md).
-
-<table>
-  <tr>
-    <td width="50%"><img src="docs/images/debate.jpg" alt="The Builder concedes the Skeptic's points"><br><sub><b>Reasoning</b>: the Builder concedes four points and rewrites the plan.</sub></td>
-    <td width="50%"><img src="docs/images/method.jpg" alt="The method page"><br><sub><b>Method</b>: reagents, solvent, temperature, yield and source for each step; the weakest step flagged.</sub></td>
-  </tr>
-  <tr>
-    <td width="50%"><img src="docs/images/route-map.jpg" alt="The route map"><br><sub><b>Route map</b>: the molecule taken apart, live, down to buyable chemicals.</sub></td>
-    <td width="50%"><img src="docs/images/lab-note.jpg" alt="A lab note revising the answer"><br><sub><b>Lab notes</b>: log your own result on a step; the verdict is recomputed and every change is shown. (Example note.)</sub></td>
-  </tr>
-</table>
-
----
+<p align="center"><sub>Built for the Meta Global AI Developer Hackathon (Oct 26 – Nov 4, 2026) · <a href="https://www.youtube.com/watch?v=VFYUAe-Ta9s">3-minute video</a> · evolved from <a href="https://github.com/moayadMoatamed/Orchanium-POC">Orchanium-POC</a>, rebuilt from scratch (<a href="#built-during-the-hackathon">what is new</a>) · <a href="#limitations">known gaps</a></sub></p>
 
 ## Quick start
+
+**Watch first:** [3-minute demo video](https://www.youtube.com/watch?v=VFYUAe-Ta9s).
 
 You need **Docker** and a **Meta Model API key**.
 
@@ -128,7 +43,7 @@ You need **Docker** and a **Meta Model API key**.
 git clone https://github.com/moayadMoatamed/Orchanium.git
 cd Orchanium
 cp .env.example .env          # then open .env and set META_API_KEY=...
-docker compose up --build
+docker compose up --build     # or: make up
 ```
 
 Open **http://localhost:5173**, type `ibuprofen` (or any molecule name or SMILES), and press
@@ -186,6 +101,62 @@ Per-run budgets (spend cap $2.50, call and search limits) are in
 cd backend && python -m pytest        # 54 tests: critic, scoring, schemas, blinding, lab notes
 cd frontend && npx tsc --noEmit
 ```
+
+## Results
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/held-out-dark.png">
+  <img src="docs/assets/held-out.png" alt="Held-out patents: 2 of 2 steps recovered on US20160024004A1 (Feasible, 0.72), US07732444B2 (Plausible, 0.67) and US08367681B2 (Plausible, 0.60); 0 of 2 on US08017637B2 (Uncertain, 0.31), US09045389B2 (Uncertain, 0.43) and US08163704B2 (Uncertain, 0.02). 6 of 12 steps, 3 of 6 routes in full, no confident wrong answers." width="100%">
+</picture>
+
+| Target | Mode | Outcome | Cost |
+|---|---|---|---|
+| **Sotorasib** (Lumakras, KRAS G12C) | blind, 41 documents refused | Same 5 building blocks and 4 reactions as Amgen's route; the swapped step flagged as unproven. Uncertain, 0.40 | $1.08 |
+| **Nirmatrelvir** (Paxlovid) | blind, 45 clues refused | The right disconnections (two amide couplings); said plainly the final step had no precedent left. Uncertain, 0.30 | $0.57 |
+| **Ibuprofen** | normal | The real 3-step BHC industrial route, with conditions from the patents. Feasible, 0.97 | $0.48 |
+
+The misses matter as much as the hits: one held-out target had no matching template, so the run
+returned **no route** at 0.02 instead of inventing one, and another proposed a sound route in the
+opposite order, which the strict scorer counts as zero. Details in
+[blind-test evidence](docs/blind-test-evidence.md).
+
+## Which Meta models do what
+
+Every agent runs on **Meta Muse Spark** (`muse-spark-1.3`) through the Meta Model API.
+
+| Job | Muse Spark does | Why it matters |
+|---|---|---|
+| **Research** | Parallel researchers call the built-in `web_search` tool to find reactions like each step: conditions, yields and failed attempts | The evidence everything rests on. With the drug's sources hidden, it still found the chemistry needed to rebuild the route |
+| **Debate** | Builder and Skeptic reason over the graph through tool calls (`find_clues`, `precedents`, `get_node`, `propose_step`) for several rounds | The plan changes under objection, as a team of chemists would argue it out. On sotorasib the Builder conceded four points and rewrote the route |
+| **Structured output** | Every agent answers in a strict JSON schema | Code verifies each citation against the graph and strikes anything uncited or invented |
+| **Report** | Writes the method from the evidence | Reported values stay plain, inferred ones are marked |
+
+Every call is visible during a run: the **Meta calls** panel lists model, latency, tokens and cost,
+and the server log prints one full request and response per run.
+
+<img src="docs/images/live-run.jpg" alt="A live run: Meta API calls in the server log on the left, the app on the right" width="100%">
+
+## Inside a run
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/how-it-works-dark.png">
+  <img src="docs/assets/how-it-works.png" alt="Five stages: 1 take it apart (RDKit), 2 research each step (Muse Spark with web search, plus patents and PubChem), 3 knowledge graph (code grades every clue), 4 Builder and Skeptic debate (Muse Spark with tool calls, code checks citations), 5 verdict and method (fixed rule). Blind mode drops every source that knows the target; lab notes re-grade the graph." width="100%">
+</picture>
+
+The model never invents a structure (names resolve through PubChem, structures come from
+databases and RDKit), never scores its own evidence, and never picks the final label: a fixed
+rule over the graph does. Architecture in depth: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/images/answer.jpg" alt="The answer page"><br><sub><b>Route</b>: the answer, the verdict, what to buy, every step.</sub></td>
+    <td width="50%"><img src="docs/images/method.jpg" alt="The method page"><br><sub><b>Method</b>: reagents, solvent, temperature, yield and source per step; the weakest step flagged.</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/images/debate.jpg" alt="The Builder concedes the Skeptic's points"><br><sub><b>Reasoning</b>: the Builder concedes and rewrites the plan.</sub></td>
+    <td width="50%"><img src="docs/images/lab-note.jpg" alt="A lab note revising the answer"><br><sub><b>Lab notes</b>: your own result re-grades the step; the verdict is recomputed and every change shown (example note).</sub></td>
+  </tr>
+</table>
 
 ## Using the app
 
