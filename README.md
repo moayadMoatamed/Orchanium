@@ -36,7 +36,27 @@
 
 <img src="docs/assets/blind-vs-amgen.jpg" alt="Orchanium's blind route for sotorasib next to Amgen's published route: steps 1 and 4 match, steps 2 and 3 are in swapped order, and that is the step Orchanium flagged as unproven." width="100%">
 
-<p align="center"><sub>Sotorasib, blind: Orchanium's route vs Amgen's commercial process (<a href="https://doi.org/10.1021/acs.oprd.2c00249">Org. Process Res. Dev. 2022</a>). Full write-up, including what this does <i>not</i> prove: <a href="docs/blind-test-evidence.md">blind-test evidence</a>.</sub></p>
+**What this image shows.** Sotorasib (Lumakras) is a cancer drug that blocks KRAS G12C, a
+protein that drives tumour growth and resisted every drug for forty years. Its manufacturing
+route is published, so we ran Orchanium in **blind mode**: every patent, paper and record that
+mentions the drug or its close relatives (41 documents, including the makers' own paper on the
+key step) was removed before the agents could see it, and its 41 names were scrubbed from every
+model request. On the left is the route Orchanium worked out under those conditions; on the right
+is Amgen's commercial process ([Org. Process Res. Dev. 2022](https://doi.org/10.1021/acs.oprd.2c00249)).
+
+- **Why it's remarkable.** With nothing to copy, Orchanium researched each possible step from
+  general chemistry literature and reasoned its way to **the same five building blocks and the
+  same four reactions** the drug's makers use: build the core ring, attach the phenol ring by
+  Suzuki coupling, activate the core and add the piperazine, install the acrylamide warhead.
+  Steps 1 and 4 match exactly (green).
+- **Why the swap is not a failure.** Steps 2 and 3 are the same two reactions in the opposite
+  order (amber). Running two independent couplings in either order is a legitimate design choice
+  that chemists weigh case by case; Amgen's order is the one proven at manufacturing scale. And
+  Orchanium did not hide the difference: it marked its step 3 as **unproven** and told the
+  chemist to test it first, because it found no published example of that exact step. The one
+  place it diverged from the experts is the one place it said it was unsure.
+
+<p align="center"><sub>Full write-up, including what this result does <i>not</i> prove: <a href="docs/blind-test-evidence.md">blind-test evidence</a>.</sub></p>
 
 <p align="center"><sub>Built for the Meta Global AI Developer Hackathon (Oct 26 – Nov 4, 2026) · <a href="https://www.youtube.com/watch?v=VFYUAe-Ta9s">3-minute video</a> · evolved from <a href="https://github.com/moayadMoatamed/Orchanium-POC">Orchanium-POC</a>, rebuilt from scratch (<a href="#built-during-the-hackathon">what is new</a>) · <a href="#limitations">known gaps</a></sub></p>
 
