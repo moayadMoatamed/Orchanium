@@ -1,350 +1,249 @@
-# Orchanium
+<p align="center">
+  <img src="frontend/public/icon.svg" width="88" alt="Orchanium logo">
+</p>
 
-**Can this molecule be made, and how?**
+<h1 align="center">Orchanium</h1>
 
-Orchanium answers that question for compounds that may never have been made before. It cuts a
-target apart with real chemistry rules, hunts published literature for *clues* — "this material
-reacted with that one, this way, at this temperature" — connects the clues into a knowledge graph,
-and then has two Meta-model agents argue over that graph until a verdict holds up.
+<p align="center">
+  <b>Can this molecule be made, and how?</b><br>
+  AI agents on <b>Meta Muse Spark</b> research the chemistry literature, argue over the evidence,
+  and return a step-by-step route to make a molecule, with every step backed by a source.
+</p>
 
-The division of labour is the whole design:
+<p align="center">
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#how-it-works">How it works</a> ·
+  <a href="#where-metas-models-do-the-work">Meta models</a> ·
+  <a href="#results">Results</a> ·
+  <a href="docs/ARCHITECTURE.md">Architecture</a>
+</p>
 
-> **The model proposes and argues. The literature provides the clues. Deterministic chemistry
-> decides.**
-
-The model never invents a structure, never scores its own evidence, and never picks the final
-label. A fixed rule over the graph does that.
-
-Built for the Meta Global AI Developer Hackathon, on the Meta Model API (Muse Spark for reasoning
-and tool use, SAM 3.1 for reading structures out of figures).
-
-This is a ground-up rebuild of an earlier proof of concept,
-[Orchanium POC](https://github.com/moayadMoatamed/Orchanium-POC). That version proposed disconnections
-with a model and validated them with RDKit. What is new here is everything the answer now rests on:
-literature clue-mining into a knowledge graph, precedent grading, the Builder/Skeptic debate, a
-computed verdict, a knowledge graph that outlives the run, lab notes that outrank published work,
-and the blind-mode validation harness.
-
-**Documentation:** [architecture](docs/ARCHITECTURE.md) ·
-[blind-test evidence](docs/blind-test-evidence.md)
+<p align="center"><img src="docs/images/answer.jpg" width="860" alt="Orchanium's answer for sotorasib, worked out in blind mode"></p>
 
 ---
 
-## What it looks like
+## The problem
 
-Four views, each a pure reduction of one event stream, so any run can be replayed from its log:
+Scientists can design a molecule that should treat a disease, say a drug that shuts down a cancer
+protein. They know the **final shape**. What they don't know is **how to build it**: which
+buyable chemicals to start from, which reactions to run in which order, and under what conditions
+(temperature, solvent, catalyst) each step works.
 
-| View | What it shows |
-|---|---|
-| **Result** | The answer in one sentence, the verdict, every step with its real conditions and evidence strength, what to buy, what to test first |
-| **Graph** | The knowledge graph assembling itself live. Nodes are told apart by shape, not colour; the chosen route is highlighted |
-| **Verification** | For any step: sources → reported reaction → citation check → structures → precedent match → chemistry checks → verdict |
-| **Debate** | The Builder/Skeptic exchange, with each cited node shown — and citations that did not check out struck through |
+Working that out backwards is called **retrosynthesis**. Today it means days to weeks of reading
+patents and papers for every step, and failed, expensive attempts in the lab.
 
----
+## What Orchanium does
 
-## Where Meta's models are used
+You type a molecule (a name or a SMILES). Orchanium:
 
-Every model call goes through one client (`backend/orchanium/meta/client.py`) and is
-published as a `meta.call` event, so the app shows each request live — model, which
-agent asked, latency, tokens, web searches and cost — and the run's event log is a
-complete record of model usage afterwards. Cached calls are emitted too, marked
-`cached`, rather than quietly omitted.
+1. **Takes it apart** into possible steps using real chemistry rules (RDKit reaction templates).
+2. **Researches every step.** Muse Spark agents search the web and published literature for
+   reactions like it: conditions, yields, and failures too. A 1.45M-reaction patent index is
+   searched as well.
+3. **Builds a knowledge graph** of that evidence and grades each step against it.
+4. **Debates the route.** A *Builder* agent proposes it, a *Skeptic* agent attacks every weak step,
+   and the Builder revises. Every claim must cite evidence; code checks each citation.
+5. **Computes a verdict** with a fixed rule over the evidence, not the model's opinion:
+   *Feasible / Plausible / Uncertain / Unlikely*, with a confidence and the reason.
+6. **Writes the guide:** buyable starting materials, each step's reagents, solvent, temperature,
+   time and yield, the patent or paper it came from, and *what to test first*.
 
-| Where | Model | What it does |
-|---|---|---|
-| `sources/web.py` — up to 5 researchers in parallel | `muse-spark-1.3` | the model's own web search, asked for published reactions of a given *type* on a *class* of substrate — **including failures**. This is the part that makes the whole approach work: the literature has no entry for your molecule, only clues scattered across unrelated papers. |
-| `agents/debate.py` — Builder | `muse-spark-1.3` | proposes a route and defends each step against the graph, with a procedure and conditions |
-| `agents/debate.py` — Skeptic | `muse-spark-1.3` | attacks it; an objection stands unless the evidence answers it, and standing objections cost confidence |
-| `agents/reporter.py`, `agents/conditions.py` | `muse-spark-1.3` | writes the report, and suggests conditions only where no source reported them |
-| `meta/sam.py` | `sam-3.1` | wired to read structures out of paper figures. **Not exercised in the demo runs** — both report `sam_images: 0`. |
-
-Structured output is used throughout: every agent answer comes back against a strict
-JSON schema, which is what lets `agents/citation_checker.py` validate each citation
-against the graph by code and strike the ones that point at nothing.
-
-**What the model does not do.** Structure resolution, disconnection, the chemistry
-critic's six checks, precedent scoring and grading, route assembly, citation validation,
-blind-mode filtering, and **the verdict and its confidence** are all deterministic code.
-Agents argue; a fixed rule decides. That boundary is the product.
-
-To reproduce with your own key, set `META_API_KEY` (see [Configuration](#configuration))
-and run with `ORCHANIUM_NO_CACHE=1`, which skips the response cache so every call in the
-run is a real request.
-
----
+A run takes 5–10 minutes and costs about $0.30–$1.10 in API calls, with a hard cap per run.
 
 ## How it works
 
-```
-         target: a name, a SMILES, or a drawing
-                          │
-  ┌───────────────────────▼───────────────────────────────────────────────┐
-  │ ① DECOMPOSE                                                   (code) │
-  │   A registry of reaction classes, run in reverse with RDKit, cuts    │
-  │   the target into precursors, and those into theirs, best-first      │
-  │   until every leaf is buyable. Each cut is a *hypothesis* reaction.  │
-  └───────────────────────┬───────────────────────────────────────────────┘
-                          │  one research need per hypothesis step
-  ┌───────────────────────▼───────────────────────────────────────────────┐
-  │ ② GATHER CLUES                                      (parallel)       │
-  │   USPTO index   1.45M patent reactions, searched by structure        │
-  │   Web research  Muse Spark + built-in web_search → conditions,       │
-  │                 yields, and crucially *failures*                     │
-  │   PubChem       names → structures, nearest known analogues          │
-  │   SAM 3.1       reaction schemes read out of figures                 │
-  │   Every source emits the same `Clue`. New sources need no new code.  │
-  └───────────────────────┬───────────────────────────────────────────────┘
-  ┌───────────────────────▼───────────────────────────────────────────────┐
-  │ ③ KNOWLEDGE GRAPH                                             (code) │
-  │   Molecules · Reactions (hypothesis | observed) · Clues · Sources.   │
-  │   Each clue is scored against the hypothesis it might support by     │
-  │   one function — product similarity, reactant similarity, how        │
-  │   similar the *transformation* is, same reaction class — giving the   │
-  │   step a grade: direct / analog / weak / none.                       │
-  └───────────────────────┬───────────────────────────────────────────────┘
-  ┌───────────────────────▼───────────────────────────────────────────────┐
-  │ ④ DEBATE                                                      (LLM)  │
-  │   Builder and Skeptic share the same graph tools and argue in turns. │
-  │   Every claim must cite node ids; code checks each citation, and an  │
-  │   uncited or unsupported claim is discarded.                         │
-  └───────────────────────┬───────────────────────────────────────────────┘
-  ┌───────────────────────▼───────────────────────────────────────────────┐
-  │ ⑤ VERDICT                                                     (code) │
-  │   Unlikely   a blocked step, or a fatal objection backed by a        │
-  │              published *failure*                                     │
-  │   Uncertain  a step with no precedent, or a gap in the route          │
-  │   Feasible   every step has direct/analog precedent, nothing stands   │
-  │   Plausible  otherwise — and the cap for any un-debated route         │
-  └───────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    T([Molecule]) --> D[Decompose<br/>RDKit templates]
+    D --> R[Research<br/>Muse Spark + web search<br/>USPTO index · PubChem]
+    R --> G[(Knowledge graph<br/>evidence, graded per step)]
+    G --> B[Builder agent<br/>Muse Spark]
+    B <--> S[Skeptic agent<br/>Muse Spark]
+    S --> V{Verdict<br/>fixed rule, not a model}
+    V --> O([Route + method + what to test first])
+    L[Lab notes<br/>your own results] -.-> G
 ```
 
-### Four decisions worth explaining
+**The model proposes and argues. The literature provides the evidence. Deterministic code decides.**
+The model never invents a structure (names resolve through PubChem, structures come from
+databases and RDKit), never scores its own evidence, and never picks the final label.
 
-**Clues, not routes.** Asking a model "how do I make X" gets you a plausible-sounding answer for a
-molecule nobody has made. Asking the literature "what reacted with what, how" gets you evidence,
-which can be scored. Orchanium only ever collects clues; it assembles the route itself.
+## Where Meta's models do the work
 
-**Vendor pages are not evidence.** A supplier listing a compound tells you someone made it, not how
-— and treating it as proof turns an evaluation into a lookup. Vendor sources are excluded from
-evidence entirely. They are used for one narrow purpose: judging whether a *leaf* is actually
-buyable — and only when it is much simpler than the target, so an advanced intermediate sold by a
-catalogue cannot be passed off as a starting material.
+Every agent runs on **Meta Muse Spark** (`muse-spark-1.3`) through the Meta Model API.
 
-**The critic is one table, not a hundred cases.** Chemistry incompatibilities come from a single
-nucleophile × electrophile table, applied both inside a molecule (a precursor that would react with
-itself) and across the inputs of a step (which reacting group wins). Adding a functional group adds
-a row, not a branch.
+| Job | What Muse Spark does | Why it matters |
+|---|---|---|
+| **Research** | Parallel researcher agents use the built-in `web_search` tool to find published reactions like each step: conditions, yields, and failed attempts | This is the evidence everything else rests on. With every source that names the drug hidden, it still found the chemistry needed to rebuild the route |
+| **Debate** | The Builder and the Skeptic reason over the graph with tool calls (`find_clues`, `precedents`, `get_node`, `propose_step`) over several rounds | The plan changes in response to objections, the way a team of chemists would argue it out |
+| **Structured output** | Every agent answers in a strict JSON schema | Code verifies each citation against the graph and discards anything uncited or invented |
+| **Report** | Writes the step-by-step method from the evidence | Reported values stay plain; inferred ones are marked |
 
-**Failures are the most valuable clue.** In the ibuprofen run the Builder argued *against*
-pressurised H₂/Pd-C, because a published failure precedent shows it over-reduces past the product.
-That argument exists only because failed reactions are indexed alongside successful ones.
+Every call is visible while a run is live: the **Meta calls** panel in the UI lists model, latency,
+tokens and cost, and the server log prints one full request and response per run.
 
----
+<p align="center"><img src="docs/images/live-run.jpg" width="860" alt="A live run: Meta API calls in the server log, the app on the right"></p>
 
 ## Results
 
-### How the claim is tested
+**Blind mode** hides every source that names or describes the target, so the route has to be
+reasoned out rather than looked up. It is how we test the system on drugs whose answers exist.
 
-For any molecule that has already been made, the answer is somewhere on the internet. So there is
-a **blind mode**, used for validation only.
+- **Sotorasib** (Lumakras, a KRAS G12C cancer drug). Blind, 41 documents refused, including the
+  makers' own paper on the key coupling. Orchanium reached **the same five building blocks and
+  the same four reactions as Amgen's published manufacturing route**
+  ([Org. Process Res. Dev. 2022](https://doi.org/10.1021/acs.oprd.2c00249)). It ran two of the
+  steps in the opposite order, and that is exactly the step it flagged as unproven. About
+  8 minutes, 41 model calls, $1.08.
+- **Nirmatrelvir** (Paxlovid). Blind: found the right disconnections, two amide couplings, and
+  reported honestly that the final step had no published precedent left.
+- **Ibuprofen** (not blind): recovered the real 3-step BHC industrial route with conditions from
+  the patents. Feasible, 0.97.
+- **Held-out patents:** 6 of 12 ground-truth steps recovered across 6 patents; **every miss came
+  back Uncertain**, never a confident wrong answer.
 
-> Blind mode is not a feature for real use. It deliberately throws away good evidence. A chemist
-> who wants the best answer leaves it off. It exists to test whether the system can work without
-> being handed the answer.
-
-It asks two questions of every clue, rather than keeping a list of special cases:
-
-1. **Does this evidence describe the target's own chemistry?** — it is the molecule, it is built on
-   the molecule's ring skeleton (what a chemical series and a patent family share), or it is a
-   fingerprint near-twin.
-2. **Does the document it came from know the target?** — it names it, it was held out, or another
-   record in it already gave the answer away.
-
-Either hides the clue, and one leak anywhere hides the **whole document**, because a paper that
-knows the answer leaks its conditions and quantities too. Separately, every name the target is
-known by is scrubbed from every model request, so an agent cannot recall a route from the name.
-
-### Blind runs on recent drugs (1 Nov 2026)
-
-| Target | Dropped as leaks | Result | Cost |
-|---|---|---|---|
-| **Nirmatrelvir** (Paxlovid) | 45 clues, 41 names | Found the right disconnections — two amide couplings, every chemistry check passing — with no published precedent left for the final step. Uncertain, 0.30 | $0.57 |
-| **Sotorasib** (Lumakras) | 41 clues, including the makers' own paper on the key coupling | Built a **complete 7-step route** from 8 buyable chemicals, matching the real manufacturing route. Its own Skeptic then found the one place its route differs from the real one. Uncertain, 0.44 | $0.79 |
-
-Each of those runs exposed a hole in our own blinding, which is what the two questions above are.
-The full write-up, including what these results do **not** prove, is in
+Full write-up, including what these results do *not* prove:
 [docs/blind-test-evidence.md](docs/blind-test-evidence.md).
 
-### Held-out patent tests
-
-`scripts/eval_holdout.py` hides the patent, **every intermediate on its real route**, and the
-target's whole chemical series, then scores the proposed route against the real one
-automatically. A step counts as recovered only if the system makes the same product *and* either
-uses the same reaction type or starts from the same piece.
-
-Six patents, run 1 Nov 2026 under the current, strictest filter:
-
-| Patent | Steps recovered | Verdict | Confidence | Cost |
-|---|---|---|---|---|
-| US20160024004A1 | **2 / 2** | Plausible → Feasible | 0.72 | $0.52 |
-| US07732444B2 | **2 / 2** | Plausible | 0.67 | $0.55 |
-| US08367681B2 | **2 / 2** | Plausible | 0.60 | $0.63 |
-| US08017637B2 | 0 / 2 | Uncertain | 0.31 | $0.62 |
-| US09045389B2 | 0 / 2 | Uncertain | 0.43 | $0.49 |
-| US08163704B2 | 0 / 2 | Uncertain | 0.02 | $0.03 |
-
-**6 of 12 ground-truth steps recovered; 3 of 6 routes recovered in full.**
-
-The misses are worth more than the hits:
-
-- **US08163704B2 was never attempted.** Its target is a diaryl ketone, and the template registry
-  has no disconnection for one, so the decomposer produced zero candidate steps. The run ended at
-  0.02 confidence with **no route at all** rather than inventing one. That is a template gap, not
-  a reasoning failure — and the system said so instead of guessing.
-- **US08017637B2 proposed a chemically sound route** that used both correct reaction types on the
-  right pieces, in the opposite order. The scorer requires the same intermediate, so a valid
-  different ordering counts as zero. The strict number is reported as it stands, not loosened
-  after the fact.
-- **Every miss came back `Uncertain`.** Not one produced a confident wrong answer, which is the
-  property that matters when a chemist is deciding whether to spend a week at the bench.
-
-US07732444B2 scored 1 / 2 under the older, weaker blinding and **2 / 2** under the stricter one,
-so tightening the filter did not cost accuracy here.
-
-### Live runs
-
-| Target | Result | Cost |
-|---|---|---|
-| **Ibuprofen** | Recovered the real **3-step BHC industrial route** — Friedel–Crafts acylation → carbonyl reduction → Pd/CO carbonylation — with conditions from the patents (82 °C, isopropanol, MgO on activated carbon, 8 h). Feasible, 0.97, 27 sources | $0.48 |
-| **Palmitoyl tripeptide-1** | 3 bond-forming steps plus 4 protection steps, conditions anchored to one named patent per step | $0.39 |
-
-A full run costs roughly **$0.30–$0.80** and is capped — spend, token, search and tool-call budgets
-are reserved per phase, so a long research phase cannot starve the debate.
-
-### What it does not do yet
-
-Stated plainly, because the limits matter as much as the results:
-
-- **Source quality is not weighted in ranking.** A patent and a blog post currently carry the same
-  weight once a clue is extracted; only structural similarity moves the score.
-- **Most web citations cannot be verified.** Publishers block automated fetches, so the citation
-  checker often has to report "unverifiable" rather than "verified". Patent citations check cleanly.
-- **A finite reaction-template registry.** The Builder can propose steps outside it, but automatic
-  disconnection is limited to the templates in `chem/reactions.py`.
-- **Reasoning is connectivity-level**, not mechanistic. It argues about which bonds can be formed
-  from what, with what precedent — not about transition states.
-- **Run-to-run variation.** The same input can land on a slightly different route and confidence,
-  because the agents are not deterministic. The verdict rule applied to them is.
-- **Meta's content filter occasionally blocks the debate prompt.** The run survives it: the report
-  falls back to a deterministic template and the verdict is capped at Plausible with the reason
-  stated.
+<table>
+  <tr>
+    <td width="50%"><img src="docs/images/debate.jpg" alt="The Builder concedes the Skeptic's points"><br><sub><b>Reasoning</b>: the Builder concedes four points and rewrites the plan.</sub></td>
+    <td width="50%"><img src="docs/images/method.jpg" alt="The method page"><br><sub><b>Method</b>: reagents, solvent, temperature, yield and source for each step; the weakest step flagged.</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/images/route-map.jpg" alt="The route map"><br><sub><b>Route map</b>: the molecule taken apart, live, down to buyable chemicals.</sub></td>
+    <td width="50%"><img src="docs/images/lab-note.jpg" alt="A lab note revising the answer"><br><sub><b>Lab notes</b>: log your own result on a step; the verdict is recomputed and every change is shown. (Example note.)</sub></td>
+  </tr>
+</table>
 
 ---
 
-## Running it
+## Quick start
 
-### Docker (one command)
-
-```bash
-cp .env.example .env    # then put your META_API_KEY in it
-```
+You need **Docker** and a **Meta Model API key**.
 
 ```bash
+git clone https://github.com/moayadMoatamed/Orchanium.git
+cd Orchanium
+cp .env.example .env          # then open .env and set META_API_KEY=...
 docker compose up --build
 ```
 
-The UI is then at **http://localhost:5173**, the API at **http://localhost:8000**.
+Open **http://localhost:5173**, type `ibuprofen` (or any molecule name or SMILES), and press
+**Find route**. Turn on **Blind mode** to see it work without being able to look the answer up.
 
-### Local
+> The key is read from `.env` at runtime and never committed or baked into an image.
+> If it is missing, the app says so as soon as you start a run. `http://localhost:8000/api/health`
+> reports whether the key and the optional patent index are present.
 
-Backend (Python 3.12):
+### Without Docker
 
 ```bash
-python -m venv .venv && . .venv/bin/activate && pip install -r backend/requirements.txt
+python -m venv .venv && . .venv/bin/activate      # Python 3.12
+pip install -r backend/requirements.txt
+cd backend && uvicorn orchanium.api:app --port 8000
 ```
 
 ```bash
-cd backend && uvicorn orchanium.api:app --port 8000 --reload
+cd frontend && npm install && npm run dev          # Node 20, opens on :5173
 ```
 
-Frontend:
+Or straight from the command line, no UI:
 
 ```bash
-cd frontend && npm install && npm run dev
+cd backend && python -m orchanium.cli run "ibuprofen" --blind
 ```
 
-Or run one target straight from the command line, no UI:
+### Optional: the patent reaction index
+
+Orchanium runs without it (web research and PubChem). With it, every step is also checked against
+1.45M real patent reactions:
 
 ```bash
-cd backend && python -m orchanium.cli run "ibuprofen"
+python scripts/download_uspto.py && python scripts/build_uspto_index.py   # ~2.4 GB download, ~20 min
+python scripts/build_class_priors.py                                      # reaction-class base rates
 ```
 
-```bash
-cd backend && python -m orchanium.cli run "ibuprofen" --blind --rounds 2
-```
+Both land in `data/`, which Docker Compose mounts automatically.
 
-### Configuration
-
-`.env` (never committed — the key belongs here, not in `.env.example`):
+### Configuration (`.env`)
 
 | Variable | Meaning |
 |---|---|
-| `META_API_KEY` | Meta Model API key. **Required.** `MODEL_API_KEY` also works |
-| `META_MODEL` | Reasoning model, default `muse-spark-1.3` |
-| `META_MODEL_CHEAP` | Model for high-volume, low-stakes calls |
-| `SAM_MODEL` | Segmentation model for reading figures, default `sam-3.1` |
-| `FETCH_CONTACT_URL` | A URL identifying you, sent in the citation checker's User-Agent. Wikipedia and some publishers refuse anonymous bots; set it to your repo URL |
-| `ORCHANIUM_NO_CACHE` | `1` skips reading the response cache, so every model call in the run is a real request. Use it to reproduce a run, or to record one |
+| `META_API_KEY` | Meta Model API key. **Required.** (`MODEL_API_KEY` also works) |
+| `META_MODEL` | Model for the agents, default `muse-spark-1.3` |
+| `FETCH_CONTACT_URL` | A URL identifying you (e.g. this repo), sent when checking citations; some sites refuse anonymous bots |
+| `ORCHANIUM_NO_CACHE` | `1` makes every model call live (no cached responses), for reproducing or recording a run |
 
-Per-run guardrails (spend cap, call caps, route depth) live in
+Per-run budgets (spend cap $2.50, call and search limits) are in
 [`backend/orchanium/config.py`](backend/orchanium/config.py).
-
-### The USPTO index (optional but recommended)
-
-Without it, Orchanium still runs on web research and PubChem alone; with it, every step is also
-checked against 1.45M real patent reactions.
-
-```bash
-python scripts/download_uspto.py
-```
-
-```bash
-python scripts/build_uspto_index.py
-```
-
-This downloads Daniel Lowe's USPTO reaction dataset (CC0, via Figshare) and builds a fingerprint
-index — about 2.4 GB of raw data, 600 MB of index, roughly 20 minutes. It lands in `data/uspto/`,
-which `docker-compose.yml` mounts, so the container picks it up automatically.
 
 ### Tests
 
 ```bash
-cd backend && python -m pytest
+cd backend && python -m pytest        # 54 tests: critic, scoring, schemas, blinding, lab notes
+cd frontend && npx tsc --noEmit
 ```
 
-35 tests covering the critic's incompatibility logic, name/structure normalisation, precedent
-scoring, the strict-JSON schema builder, and the route validator. The frontend is checked with
-`npx tsc --noEmit`.
+## Using the app
 
----
+| Tab | What you see |
+|---|---|
+| **Route** | The answer in one sentence, the verdict and confidence, what to buy, every step, and what to test first. *Route map* shows the graph building live |
+| **Method** | The lab procedure: reagents, solvent, temperature, time and yield per step, each with its source. Plain = reported, underlined = inferred |
+| **Reasoning** | The Builder/Skeptic exchange and the checks run on every citation |
+| **Lab notes** | Record what happened when you ran a step. Your result outranks published work; the verdict is recomputed and later runs remember it |
 
-## Layout
+**Past runs** can be reopened or replayed from the dropdown.
+
+## Built during the hackathon
+
+Orchanium started months ago as a small proof of concept,
+[Orchanium-POC](https://github.com/moayadMoatamed/Orchanium-POC): one LLM proposed steps from a
+fixed, hand-loaded Neo4j database, and RDKit checked them. **Everything in this repository was
+built from scratch during the Meta Global AI Developer Hackathon** (commit history starts
+30 Oct 2026), with a new architecture:
+
+| Orchanium-POC (before) | Orchanium (built this week) |
+|---|---|
+| One LLM proposing steps | A multi-agent system on Meta Muse Spark: researchers, Builder, Skeptic, reporter |
+| Fixed, hand-curated database | Evidence gathered **live** from the literature with web search, plus a 1.45M-reaction patent index |
+| Graph as a static store | Knowledge graph built per run from graded evidence, which persists and grows across runs |
+| Template match = answer | Builder/Skeptic debate with verified citations |
+| — | Verdict computed by a fixed rule; confidence from the evidence |
+| — | Blind mode to prove routes are reasoned, not looked up |
+| — | Lab notes that revise answers; method write-up with sources |
+
+## Repository layout
 
 ```
 backend/orchanium/
-  orchestrator.py     the run: decompose → gather → debate → verdict, all emitted as events
-  clues.py            the single ingest path, plus the evidence policy and blind/strict filters
-  graph.py            the knowledge graph
-  api.py              FastAPI + resumable server-sent events (sequence ids, resume, heartbeat)
-  chem/               RDKit: reaction templates, similarity, the critic, purchasability, depiction
-  agents/             planner · decomposer · graph tools · debate · verdict · citation check · reporter
-  meta/client.py      Meta Model API: strict JSON schemas, tool loop, budget accounting
-  sources/            USPTO index · web research
-backend/prompts/      every agent prompt, as Markdown, editable without touching code
-frontend/src/
-  state/runStore.ts   the whole UI is a reduction over the event stream
-  components/         result · graph · verification chain · debate · activity dock
-scripts/              USPTO download and index build, held-out evaluation, smoke tests
-PLAN.md               the build plan, with the verified Meta API shapes
+  orchestrator.py    a run: decompose → research → debate → verdict, streamed as events
+  agents/            planner · decomposer · researchers · Builder/Skeptic debate · verdict · reporter
+  meta/client.py     Meta Model API client: strict JSON schemas, tool loop, budgets, call log
+  clues.py graph.py  the evidence pipeline and the knowledge graph (blind-mode filters live here)
+  chem/              RDKit: reaction templates, similarity, chemistry critic, purchasability
+  sources/           web research · USPTO index
+  lab.py             lab notes: your results as evidence, with recomputed verdicts
+  api.py             FastAPI + resumable server-sent events
+backend/prompts/     every agent prompt, in Markdown
+frontend/src/        React UI; the whole interface is a reduction over the event stream
+scripts/             patent index build, held-out evaluation, smoke tests
+docs/                architecture, blind-test evidence, the original build plan
 ```
+
+## Limitations
+
+- Reasoning is at the level of which bonds can be formed from what, not reaction mechanisms.
+- Source quality is not yet weighted: a patent and a blog post count the same once extracted.
+- Many publishers block automated fetches, so many web citations end up "unverifiable"; patents
+  check cleanly.
+- Automatic disconnection is limited to the reaction-template registry (the Builder can go beyond it).
+- A client for Meta's SAM 3.1 (reading reaction schemes from figures) is included in
+  `meta/sam.py` but is not yet wired into runs.
+- Agents are not deterministic, so the same input can give a slightly different route; the
+  verdict rule applied to it is deterministic.
+
+## License
+
+[Apache 2.0](LICENSE)
