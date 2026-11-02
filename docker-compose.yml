@@ -2,6 +2,9 @@ services:
   backend:
     build:
       context: ./backend
+    restart: unless-stopped
+    # Your key goes in .env (copy .env.example). It is passed in at runtime,
+    # never baked into the image.
     env_file: .env
     # The SQLite store, run logs and the USPTO index live here. Mounting the
     # host directory keeps runs across rebuilds and lets the container use an
@@ -20,6 +23,7 @@ services:
   frontend:
     build:
       context: ./frontend
+    restart: unless-stopped
     ports:
       - "5173:5173"
     depends_on:
