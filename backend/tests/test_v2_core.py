@@ -1,10 +1,9 @@
 """Offline tests for the v2 core: decomposition, precedent linking, routes,
 route validation and the verdict rule. PubChem lookups are stubbed out."""
-import json
 import asyncio
+import json
 
 import pytest
-
 from orchanium.agents import decomposer, verdict
 from orchanium.agents.debate import DebateResult, Objection
 from orchanium.chem import pubchem
@@ -167,8 +166,8 @@ def test_evidence_policy_and_patent_ids():
 
 
 def test_strict_mode_hides_near_identical_evidence():
-    from orchanium.clues import _hidden_hit
     from orchanium.chem.resolver import Resolved
+    from orchanium.clues import _hidden_hit
     ctx = _ctx(PARACETAMOL)
     ctx.blind, ctx.similarity_cap = True, 0.5
     near = "CC(=O)Nc1ccc(OC)cc1"                       # methacetin, very close to paracetamol
@@ -196,6 +195,7 @@ def test_blind_mode_drops_the_whole_document_that_knows_the_target():
     """A paper that makes the target must not supply conditions for anything
     else either: its other records are just as much a leak."""
     import asyncio
+
     from orchanium.clues import ingest
     ctx, g = _decomposed(PARACETAMOL)
     ctx.blind = True
@@ -233,9 +233,9 @@ def test_blind_mode_scrubs_every_name_of_the_target_from_requests():
 def test_blind_mode_hides_the_targets_own_chemical_series():
     """A patent family describes one series under many names: a near-final
     intermediate can look unlike the target by fingerprint yet share its core."""
-    from orchanium.clues import _hidden_hit
     from orchanium.chem.resolver import Resolved
     from orchanium.chem.similarity import tanimoto
+    from orchanium.clues import _hidden_hit
     soto = ("CC(C)c1nccc(C)c1N1C(=O)N=C(N2CCN(C(=O)C=C)C[C@@H]2C)c2cc(F)c(-c3c(O)cccc3F)nc21")
     penultimate = "CC(C)c1nccc(C)c1N1C(=O)N=C(N2CCNC[C@@H]2C)c2cc(F)c(-c3c(O)cccc3F)nc21"
     unrelated = "CC(=O)Nc1ccc(O)cc1"
@@ -252,8 +252,8 @@ def test_blind_mode_hides_the_targets_own_chemical_series():
 def test_scaffold_rule_does_not_over_block_simple_targets():
     """Paracetamol's skeleton is just a benzene ring: it identifies no series,
     so the rule must not drop every clue that contains a benzene."""
-    from orchanium.clues import _hidden_hit
     from orchanium.chem.resolver import Resolved
+    from orchanium.clues import _hidden_hit
     ctx = _ctx(PARACETAMOL)
     ctx.blind = True
     other = Resolved(ok=True, query="x", inchikey=rd.inchikey("CC(=O)Nc1ccccc1Cl"),

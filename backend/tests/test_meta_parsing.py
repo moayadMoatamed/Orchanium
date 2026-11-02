@@ -1,7 +1,6 @@
-from pydantic import BaseModel
-
 from orchanium.meta.client import _parse_output, normalize_url, strict_schema
 from orchanium.meta.sam import parse_sam_output
+from pydantic import BaseModel
 
 
 def test_parse_sam_output_with_confidence():
@@ -68,8 +67,9 @@ def test_agent_out_of_tool_turns_still_answers(monkeypatch):
     """A long investigation must end in a result: when the turns run out the
     tools are withdrawn and the model is asked for its answer."""
     import asyncio
-    from pydantic import BaseModel
+
     from orchanium.meta.client import Budget, MetaClient, Tool
+    from pydantic import BaseModel
 
     class Args(BaseModel):
         q: str

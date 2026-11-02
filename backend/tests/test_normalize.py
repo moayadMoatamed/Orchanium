@@ -2,7 +2,6 @@ import asyncio
 import socket
 
 import pytest
-
 from orchanium.chem import pubchem
 from orchanium.chem import rdkit_utils as rd
 

@@ -8,14 +8,12 @@ import json
 import random
 import sqlite3
 import sys
-from collections import defaultdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
-from rdkit import Chem, RDLogger  # noqa: E402
-
 from orchanium.chem import purchasable  # noqa: E402
 from orchanium.chem.reactions import classify  # noqa: E402
+from rdkit import Chem, RDLogger  # noqa: E402
 
 RDLogger.DisableLog("rdApp.*")
 DB = Path(__file__).resolve().parents[1] / "data" / "uspto" / "uspto.sqlite"
@@ -36,7 +34,7 @@ def main(n_patents: int = 4000, seed: int = 7):
         if len(rows) < 2:
             continue
         by_product = {r[2]: r for r in rows}
-        for rid, reactants, product, yld in rows:
+        for _rid, reactants, product, yld in rows:
             tm = Chem.MolFromSmiles(product)
             if tm is None or not 20 <= tm.GetNumHeavyAtoms() <= 32:
                 continue

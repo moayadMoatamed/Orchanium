@@ -192,8 +192,7 @@ SAM_RE = re.compile(r"<(\d+)f>(\d+)<\|box;x1=(\d+);y1=(\d+);x2=(\d+);y2=(\d+)[^|
 
 
 def t_sam():
-    from rdkit import Chem
-    from rdkit.Chem import Draw, AllChem
+    from rdkit.Chem import AllChem, Draw
     rxn = AllChem.ReactionFromSmarts("Oc1ccccc1C(=O)O.CC(=O)OC(C)=O>>CC(=O)Oc1ccccc1C(=O)O", useSmiles=True)
     img = Draw.ReactionToImage(rxn, subImgSize=(300, 300))
     img.save(OUT / "sam_input.png")

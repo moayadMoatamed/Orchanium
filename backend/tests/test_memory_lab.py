@@ -2,14 +2,13 @@
 Offline: PubChem is stubbed, the store and snapshots live in a temp dir."""
 import asyncio
 
-from test_v2_core import PARACETAMOL, _decomposed, _observe, offline  # noqa: F401  (offline is an autouse fixture)
-
 from orchanium import lab, memory
 from orchanium.agents import conditions, verdict
 from orchanium.agents.debate import DebateResult
 from orchanium.chem.resolver import MolRef
 from orchanium.clues import need_for
 from orchanium.models import Conditions
+from test_v2_core import PARACETAMOL, _decomposed, _observe, offline  # noqa: F401  (offline is an autouse fixture)
 
 
 def _amide(g):
