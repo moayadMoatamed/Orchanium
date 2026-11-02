@@ -27,6 +27,13 @@
 - **Who decides.** The model proposes and argues; the literature supplies the evidence;
   **deterministic code** draws structures, checks every citation and computes the verdict.
 
+> [!TIP]
+> **For real use, leave blind mode off.** Orchanium then uses every published source it can find,
+> including papers and patents on the molecule itself, and gives its most solid answers (ibuprofen:
+> the real industrial route, *Feasible*, 0.97). **Blind mode** deliberately hides all of that. It is
+> for challenging the system on molecules whose answer is already known, or for when you want a
+> route worked out without existing papers on the target.
+
 <img src="docs/assets/blind-vs-amgen.jpg" alt="Orchanium's blind route for sotorasib next to Amgen's published route: steps 1 and 4 match, steps 2 and 3 are in swapped order, and that is the step Orchanium flagged as unproven." width="100%">
 
 <p align="center"><sub>Sotorasib, blind: Orchanium's route vs Amgen's commercial process (<a href="https://doi.org/10.1021/acs.oprd.2c00249">Org. Process Res. Dev. 2022</a>). Full write-up, including what this does <i>not</i> prove: <a href="docs/blind-test-evidence.md">blind-test evidence</a>.</sub></p>
@@ -47,7 +54,8 @@ docker compose up --build     # or: make up
 ```
 
 Open **http://localhost:5173**, type `ibuprofen` (or any molecule name or SMILES), and press
-**Find route**. Turn on **Blind mode** to see it work without being able to look the answer up.
+**Find route**. Leave **Blind mode** off for the best answer; turn it on only to challenge
+Orchanium by hiding every existing source on the molecule.
 
 > The key is read from `.env` at runtime and never committed or baked into an image.
 > If it is missing, the app says so as soon as you start a run. `http://localhost:8000/api/health`
