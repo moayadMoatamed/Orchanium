@@ -44,6 +44,8 @@ async def health() -> dict:
 
 @app.post("/api/runs")
 async def start_run(req: RunRequest) -> dict:
+    if not settings.meta_api_key:
+        raise HTTPException(400, "No Meta API key: put META_API_KEY in .env and restart the server.")
     orch = Orchestrator(req.target, blind=req.blind or bool(req.hidden), hidden=req.hidden,
                         similarity_cap=req.similarity_cap, web_budget=req.web_budget,
                         debate_rounds=req.debate_rounds)
